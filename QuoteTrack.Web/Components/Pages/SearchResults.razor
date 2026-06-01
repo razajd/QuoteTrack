@@ -1,0 +1,325 @@
+﻿@page "/searchresults"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Web.Help
+@inject IQuoteService QuoteService
+@inject IRfqService RfqService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavManager
+@inject HelpIndex HelpIndex
+
+<PageTitle>@(string.IsNullOrWhiteSpace(q) ? "Dashboard - NexTraQ" : $"Search: {q}")</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    @if (!string.IsNullOrWhiteSpace(q))
+    {
+        <h1><i class="bi bi-search text-primary me-2"></i>Search Results</h1>
+    }
+    else
+    {
+        <h1><i class="bi bi-speedometer2 text-primary me-2"></i>Command Center</h1>
+    }
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2 text-muted">Loading dashboard metrics...</p>
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(q))
+    {
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom fw-bold py-3">
+                Results for: <span class="text-primary">@q</span>
+            </div>
+            <div class="card-body p-0">
+                @if (!searchQuotes.Any() && !helpResults.Any())
+                {
+                    <div class="p-4 text-muted">No matches found.</div>
+                }
+                else
+                {
+                    @if (searchQuotes.Any())
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var quote in searchQuotes)
+                            {
+                                <a href="/quote/@quote.Id" class="list-group-item list-group-item-action p-3">
+                                    <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                                        <h6 class="mb-0 fw-bold text-primary">@(string.IsNullOrWhiteSpace(quote.ClientName) ? "(No Client)" : quote.ClientName)</h6>
+                                        <small class="text-muted">@quote.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy")</small>
+                                    </div>
+                                    <div class="d-flex w-100 justify-content-between align-items-center">
+                                        <p class="mb-0 text-truncate text-muted small" style="max-width: 420px;">@quote.Subject</p>
+                                        <span class="small fw-bold">@(quote.QuoteValue.HasValue ? $"{quote.Currency} {quote.QuoteValue.Value:N3}" : "-")</span>
+                                    </div>
+                                </a>
+                            }
+                        </div>
+                    }
+
+                    @if (helpResults.Any())
+                    {
+                        <div class="border-top p-3 bg-light">
+                            <div class="fw-bold text-uppercase small text-muted mb-2">Help Center Articles</div>
+                            <div class="row g-3">
+                                @foreach (var article in helpResults)
+                                {
+                                    <div class="col-md-6">
+                                        <a href="/help/@article.Slug" class="text-decoration-none">
+                                            <div class="card shadow-sm border-0 h-100">
+                                                <div class="card-body">
+                                                    <div class="small text-uppercase text-muted fw-bold mb-1">@article.Category</div>
+                                                    <div class="fw-bold mb-1 text-primary">@article.Title</div>
+                                                    <div class="small text-muted">@article.Summary</div>
+                                                </div>
+                                            </div>
+                                        </a>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card shadow-sm border-0 border-start border-primary border-4 h-100">
+                <div class="card-body p-3">
+                    <h6 class="text-muted fw-bold text-uppercase mb-2" style="font-size: 0.75rem;">Active Pipeline Value</h6>
+                    <h4 class="mb-0 text-dark">BHD @totalPipelineValue.ToString("N3")</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card shadow-sm border-0 border-start border-success border-4 h-100 bg-success bg-opacity-10">
+                <div class="card-body p-3">
+                    <h6 class="text-success fw-bold text-uppercase mb-2" style="font-size: 0.75rem;">Booked Revenue</h6>
+                    <h4 class="mb-0 text-success fw-bold">BHD @bookedRevenue.ToString("N3")</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card shadow-sm border-0 border-start border-info border-4 h-100">
+                <div class="card-body p-3">
+                    <h6 class="text-muted fw-bold text-uppercase mb-2" style="font-size: 0.75rem;">Active Quotes</h6>
+                    <h4 class="mb-0 text-dark">@totalActiveQuotes</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card shadow-sm border-0 border-start border-warning border-4 h-100">
+                <div class="card-body p-3">
+                    <h6 class="text-muted fw-bold text-uppercase mb-2" style="font-size: 0.75rem;">Unassigned Leads</h6>
+                    <h4 class="mb-0 text-dark">@unassignedLeadsCount</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card shadow-sm border-0 border-start border-danger border-4 h-100">
+                <div class="card-body p-3">
+                    <h6 class="text-muted fw-bold text-uppercase mb-2" style="font-size: 0.75rem;">Follow-Ups Due</h6>
+                    <h4 class="mb-0 text-dark">@followUpsDue.Count</h4>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-7 mb-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white border-bottom fw-bold py-3 d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-lightning-charge-fill text-warning me-2"></i> Recent Pipeline Activity</span>
+                    <a href="/quotes" class="btn btn-sm btn-outline-secondary">View All</a>
+                </div>
+                <div class="card-body p-0">
+                    @if (!recentQuotes.Any())
+                    {
+                        <div class="p-4 text-center text-muted small">No recent active quotes found.</div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var quote in recentQuotes)
+                            {
+                                <a href="/quote/@quote.Id" class="list-group-item list-group-item-action p-3">
+                                    <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                                        <h6 class="mb-0 fw-bold text-primary">@(string.IsNullOrEmpty(quote.ClientName) ? "Unknown Client" : quote.ClientName)</h6>
+                                        <small class="text-muted">@quote.CreatedAt.ToLocalTime().ToString("MMM dd")</small>
+                                    </div>
+                                    <div class="d-flex w-100 justify-content-between align-items-center">
+                                        <p class="mb-0 text-truncate text-muted small" style="max-width: 350px;">@quote.Subject</p>
+                                        <span class="text-success fw-bold small">
+                                            @(quote.QuoteValue.HasValue ? $"{quote.Currency} {quote.QuoteValue.Value:N3}" : "Pending")
+                                        </span>
+                                    </div>
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-5 mb-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white border-bottom fw-bold py-3">
+                    <span><i class="bi bi-telephone-outbound-fill text-danger me-2"></i> My Tasks: Follow-Ups Due</span>
+                </div>
+                <div class="card-body p-0">
+                    @if (!followUpsDue.Any())
+                    {
+                        <div class="p-5 text-center text-muted">
+                            <i class="bi bi-check-circle text-success" style="font-size: 3rem;"></i>
+                            <p class="mt-3 mb-0 fw-bold">All Caught Up!</p>
+                            <small>No follow-ups are due right now.</small>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var quote in followUpsDue)
+                            {
+                                <div class="list-group-item p-3 border-start-0 border-end-0 border-bottom">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div>
+                                            <h6 class="mb-0 fw-bold">@(string.IsNullOrEmpty(quote.ClientName) ? "Unknown" : quote.ClientName)</h6>
+                                            <small class="text-danger fw-bold"><i class="bi bi-calendar-x me-1"></i> Due: @quote.NextFollowUpDate?.ToLocalTime().ToString("MMM dd")</small>
+                                        </div>
+                                        <a href="/quote/@quote.Id" class="btn btn-sm btn-outline-danger fw-bold shadow-sm">Review</a>
+                                    </div>
+                                    <p class="mb-0 text-truncate text-muted small" style="max-width: 100%;">@quote.Subject</p>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery]
+    public string? q { get; set; }
+
+    private bool isLoading = true;
+
+    // Updated KPI variables
+    private decimal totalPipelineValue = 0;
+    private decimal bookedRevenue = 0;
+    private int totalActiveQuotes = 0;
+    private int unassignedLeadsCount = 0;
+
+    private List<Quote> followUpsDue = new();
+    private List<Quote> recentQuotes = new();
+
+    private List<Quote> searchQuotes = new();
+    private List<HelpDoc> helpResults = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            await LoadSearchDataAsync(q);
+        }
+        else
+        {
+            await LoadDashboardDataAsync();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadSearchDataAsync(string query)
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var isAdmin = user.IsInRole("Admin");
+        string? currentUserId = null;
+
+        if (user.Identity is not null && user.Identity.IsAuthenticated)
+        {
+            var appUser = await UserManager.GetUserAsync(user);
+            currentUserId = appUser?.Id;
+        }
+
+        var allMyQuotes = await QuoteService.GetAllQuotesAsync(currentUserId, isAdmin);
+        var qn = query.Trim();
+
+        searchQuotes = allMyQuotes
+            .Where(x =>
+                (!string.IsNullOrWhiteSpace(x.ClientName) && x.ClientName.Contains(qn, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(x.Subject) && x.Subject.Contains(qn, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(x.QuoteReference) && x.QuoteReference.Contains(qn, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(x.SenderEmail) && x.SenderEmail.Contains(qn, StringComparison.OrdinalIgnoreCase))
+            )
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(50)
+            .ToList();
+
+        helpResults = HelpIndex.Search(qn)
+            .Take(6)
+            .ToList();
+    }
+
+    private async Task LoadDashboardDataAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var isAdmin = user.IsInRole("Admin");
+        string? currentUserId = null;
+
+        if (user.Identity is not null && user.Identity.IsAuthenticated)
+        {
+            var appUser = await UserManager.GetUserAsync(user);
+            currentUserId = appUser?.Id;
+        }
+
+        var unassignedLeads = await RfqService.GetUnassignedRfqsAsync();
+        unassignedLeadsCount = unassignedLeads.Count;
+
+        // Pull ALL quotes the user has access to
+        var allMyQuotes = await QuoteService.GetAllQuotesAsync(currentUserId, isAdmin);
+
+        // 1. Calculate Booked Revenue (Only quotes marked as 'Won')
+        var wonQuotes = allMyQuotes.Where(q => q.Status.ToString().Equals("Won", StringComparison.OrdinalIgnoreCase)).ToList();
+        bookedRevenue = wonQuotes.Sum(q => q.QuoteValue ?? 0);
+
+        // 2. Calculate Active Pipeline (Exclude 'Won' and 'Lost')
+        var activeQuotes = allMyQuotes.Where(q =>
+            !q.Status.ToString().Equals("Won", StringComparison.OrdinalIgnoreCase) &&
+            !q.Status.ToString().Equals("Lost", StringComparison.OrdinalIgnoreCase)
+        ).ToList();
+
+        totalPipelineValue = activeQuotes.Sum(q => q.QuoteValue ?? 0);
+        totalActiveQuotes = activeQuotes.Count;
+
+        // Populate Action Required using ONLY active quotes
+        followUpsDue = activeQuotes
+            .Where(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= DateTime.UtcNow)
+            .OrderBy(q => q.NextFollowUpDate)
+            .ToList();
+
+        // Populate Recent Activity using ONLY active quotes
+        recentQuotes = activeQuotes
+            .OrderByDescending(q => q.CreatedAt)
+            .Take(6)
+            .ToList();
+    }
+}

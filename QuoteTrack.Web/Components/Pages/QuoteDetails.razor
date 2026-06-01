@@ -1,0 +1,1080 @@
+﻿@page "/quote/{Id:guid}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+
+@inject IQuoteService QuoteService
+@inject IClientService ClientService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Quote Details</PageTitle>
+
+<style>
+    .qt-timeline-wrap {
+        background: #fff;
+        border-radius: 16px;
+        box-shadow: 0 .125rem .25rem rgba(0,0,0,.075);
+        padding: 14px 14px 8px 14px;
+        margin-bottom: 1.25rem;
+        overflow: hidden;
+    }
+
+    .qt-timeline-scroll {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 8px;
+        scrollbar-width: thin;
+    }
+
+        .qt-timeline-scroll::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .qt-timeline-scroll::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,.18);
+            border-radius: 10px;
+        }
+
+    .qt-timeline-card {
+        min-width: 230px;
+        max-width: 230px;
+        background: #fafafa;
+        border: 1px solid #ececec;
+        border-radius: 14px;
+        padding: 12px 14px;
+        flex: 0 0 auto;
+    }
+
+        .qt-timeline-card.note-card {
+            min-width: 520px;
+            max-width: 520px;
+        }
+
+    .qt-step-badge {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #f7b500;
+        color: #111;
+        font-weight: 800;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 8px;
+        flex: 0 0 auto;
+    }
+
+    .qt-card-title {
+        display: flex;
+        align-items: center;
+        font-weight: 800;
+        color: #1c1c1c;
+        margin-bottom: 8px;
+    }
+
+    .qt-card-meta {
+        font-size: 12px;
+        color: #6c757d;
+        margin-bottom: 4px;
+    }
+
+    .qt-card-value {
+        font-size: 13px;
+        color: #303030;
+        line-height: 1.45;
+    }
+
+    .qt-note-preview {
+        white-space: normal;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        line-height: 1.45;
+        min-height: 42px;
+    }
+
+    .qt-timeline-footer {
+        border-top: 1px solid #efefef;
+        margin-top: 8px;
+        padding-top: 10px;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .qt-chip-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .qt-chip {
+        border: 1px solid #e7e7e7;
+        background: #fafafa;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        color: #555;
+    }
+
+    @@media (max-width: 768px) {
+        .qt-timeline-card {
+            min-width: 260px;
+            max-width: 260px;
+        }
+
+            .qt-timeline-card.note-card {
+                min-width: 340px;
+                max-width: 340px;
+            }
+    }
+</style>
+
+@if (isLoading)
+{
+    <div class="container-fluid mt-5">
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="text-muted mt-2 small">Loading quote…</div>
+        </div>
+    </div>
+}
+else if (quote == null)
+{
+    <div class="container-fluid mt-5">
+        <div class="alert alert-danger shadow-sm">
+            <b>Quote not found.</b>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick="BackToQuotes">
+            <i class="bi bi-arrow-left"></i> Back
+        </button>
+    </div>
+}
+else
+{
+    <div class="container-fluid mb-5">
+
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-start mt-4 mb-3">
+            <div>
+                <button class="btn btn-sm btn-outline-secondary mb-2" @onclick="BackToQuotes">
+                    <i class="bi bi-arrow-left me-1"></i> Back to Quotes
+                </button>
+
+                <h3 class="mb-1">
+                    <i class="bi bi-file-earmark-text-fill text-primary me-2"></i>Quote Details
+                </h3>
+
+                <div class="small text-muted">
+                    <div><b>Subject:</b> @quote.Subject</div>
+                    <div><b>From:</b> @quote.SenderEmail</div>
+                    <div><b>Received:</b> @quote.EmailReceivedDateTime.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")</div>
+                </div>
+            </div>
+
+            <div class="text-end">
+                <span class="badge @GetStatusBadgeClass(quote.Status) fs-6 px-3 py-2 shadow-sm">
+                    @quote.Status.ToString()
+                </span>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger shadow-sm">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <b>Error:</b> @errorMessage
+            </div>
+        }
+
+        @if (saveSuccess)
+        {
+            <div class="alert alert-success shadow-sm">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                Saved successfully.
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(clientMessage))
+        {
+            <div class="alert @(clientMessageOk ? "alert-success" : "alert-warning") shadow-sm">
+                <i class="bi @(clientMessageOk ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") me-2"></i>
+                @clientMessage
+            </div>
+        }
+
+        <!-- Timeline Strip -->
+        <div class="qt-timeline-wrap">
+            <div class="qt-timeline-scroll">
+                <div class="qt-timeline-card">
+                    <div class="qt-card-title">
+                        <span class="qt-step-badge">1</span> Extracted Client
+                    </div>
+                    <div class="qt-card-meta">From quote extraction</div>
+                    <div class="qt-card-value">@(string.IsNullOrWhiteSpace(quote.ClientName) ? "-" : quote.ClientName)</div>
+                </div>
+
+                <div class="qt-timeline-card">
+                    <div class="qt-card-title">
+                        <span class="qt-step-badge">2</span> Record Created
+                    </div>
+                    <div class="qt-card-meta">@quote.CreatedAt.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")</div>
+                    <div class="qt-card-value">Quote record created in the system</div>
+                </div>
+
+                <div class="qt-timeline-card">
+                    <div class="qt-card-title">
+                        <span class="qt-step-badge">3</span> Current Status
+                    </div>
+                    <div class="qt-card-meta">@quote.UpdatedAt.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")</div>
+                    <div class="qt-card-value">Status: @quote.Status</div>
+                </div>
+
+                <div class="qt-timeline-card">
+                    <div class="qt-card-title">
+                        <span class="qt-step-badge">4</span> Next Action
+                    </div>
+                    <div class="qt-card-meta">
+                        @(quote.NextFollowUpDate.HasValue
+                                            ? quote.NextFollowUpDate.Value.ToLocalTime().ToString("dd MMM yyyy")
+                                            : "Not set")
+                    </div>
+                    <div class="qt-card-value">Owner: @(GetOwnerName())</div>
+                </div>
+
+                <div class="qt-timeline-card note-card">
+                    <div class="qt-card-title">
+                        <span class="qt-step-badge">5</span> Last Note
+                    </div>
+                    <div class="qt-card-meta">@GetLastNoteTimeText()</div>
+                    <div class="qt-card-value qt-note-preview">@GetLastNotePreview()</div>
+                </div>
+            </div>
+
+            <div class="qt-timeline-footer">
+                <div class="qt-chip-row">
+                    <span class="qt-chip"><b>Updated</b>&nbsp; @quote.UpdatedAt.ToLocalTime().ToString("dd MMM, hh:mm tt")</span>
+                    <span class="qt-chip"><b>Created</b>&nbsp; @quote.CreatedAt.ToLocalTime().ToString("dd MMM, hh:mm tt")</span>
+                    <span class="qt-chip"><b>Received</b>&nbsp; @quote.EmailReceivedDateTime.ToLocalTime().ToString("dd MMM, hh:mm tt")</span>
+                    @if (GetLatestFollowUp() != null)
+                    {
+                        <span class="qt-chip"><b>Note</b>&nbsp; @GetLatestFollowUp()!.CreatedAt.ToLocalTime().ToString("dd MMM, hh:mm tt")</span>
+                    }
+                </div>
+
+                <div class="qt-chip-row">
+                    <span class="qt-chip"><b>Total Notes:</b> @(quote.FollowUps?.Count ?? 0)</span>
+                    <span class="qt-chip"><b>Attachments:</b> @(quote.Attachments?.Count ?? 0)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- LEFT -->
+            <div class="col-lg-8">
+
+                <!-- Main editable details -->
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white fw-bold border-bottom py-3">
+                        Quote Information
+                    </div>
+
+                    <div class="card-body">
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted fw-bold">Owner</label>
+                                <select class="form-select" @bind="quote.OwnerId">
+                                    <option value="">-- Unassigned --</option>
+                                    @foreach (var u in systemUsers)
+                                    {
+                                        <option value="@u.Id">@u.FullName</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted fw-bold">Verified Client (link existing)</label>
+                                <select class="form-select" @bind="quote.ClientId">
+                                    <option value="">-- Select Client --</option>
+                                    @foreach (var c in verifiedClients)
+                                    {
+                                        <option value="@c.Id">@c.CompanyName</option>
+                                    }
+                                </select>
+                                <div class="form-text small">Extracted: <b>@(string.IsNullOrWhiteSpace(quote.ClientName) ? "-" : quote.ClientName)</b></div>
+
+                                <div class="d-flex gap-2 mt-2">
+                                    <button class="btn btn-sm btn-outline-primary fw-bold" @onclick="OpenAddClientModal">
+                                        <i class="bi bi-plus-circle me-1"></i>
+                                        @(isAdminOrHead ? "Add Client" : "Request New Client")
+                                    </button>
+
+                                    @if (isAdminOrHead)
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary fw-bold" @onclick="OpenClientDirectory">
+                                            <i class="bi bi-journal-text me-1"></i> Client Directory
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted fw-bold">Quote Reference</label>
+                                <input class="form-control" @bind="quote.QuoteReference" />
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label small text-muted fw-bold">Value (Without VAT)</label>
+                                <input class="form-control" type="number" step="0.001" @bind="quote.QuoteValue" />
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label small text-muted fw-bold">Currency</label>
+                                <input class="form-control" @bind="quote.Currency" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted fw-bold">Quote Status</label>
+                                <select class="form-select fw-bold" @bind="quote.Status">
+                                    @foreach (var s in QuoteStatusOptions)
+                                    {
+                                        <option value="@s">@s.ToString()</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted fw-bold">Win Probability (%)</label>
+                                <input class="form-control" type="number" min="0" max="100" step="1" @bind="quote.WinProbability" />
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted fw-bold">Next Follow-up Date</label>
+                                <input type="date" class="form-control" @bind="followUpDateLocal" @bind:format="yyyy-MM-dd" />
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label small text-muted fw-bold">Solution Summary</label>
+                                <textarea class="form-control" rows="4" @bind="quote.SolutionSummary"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="d-flex gap-2 mt-4">
+                            <button class="btn btn-warning fw-bold shadow-sm" @onclick="SaveQuote">
+                                <i class="bi bi-save-fill me-1"></i> Save
+                            </button>
+
+                            <button class="btn btn-outline-secondary fw-bold shadow-sm" @onclick="Reload">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Inline Email Preview (.eml rendered as HTML) -->
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white fw-bold border-bottom py-3 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-envelope-open text-primary me-2"></i>Email Preview</span>
+
+                        @if (emlAttachment != null)
+                        {
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="@($"/api/attachments/download/{emlAttachment.Id}")"
+                               target="_blank">
+                                <i class="bi bi-download me-1"></i> Download EML
+                            </a>
+                        }
+                    </div>
+
+                    <div class="card-body p-0">
+                        @if (emlAttachment == null)
+                        {
+                            <div class="p-3 text-muted small">No EML thread found.</div>
+                        }
+                        else
+                        {
+                            <iframe src="@($"/api/attachments/emlview/{emlAttachment.Id}")"
+                                    style="width:100%; height:560px; border:0; background:white;"
+                                    title="Email Preview">
+                            </iframe>
+                        }
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- RIGHT -->
+            <div class="col-lg-4">
+
+                <!-- Delete / Request delete -->
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white fw-bold border-bottom py-3 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-shield-exclamation text-danger me-2"></i>Delete Control</span>
+
+                        @if (!quote.IsDeleteRequested)
+                        {
+                            @if (isAdminOrHead)
+                            {
+                                <button class="btn btn-sm btn-outline-danger fw-bold" @onclick="ConfirmAdminDelete">
+                                    <i class="bi bi-trash-fill me-1"></i> Delete
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger fw-bold" @onclick="ToggleDeleteRequest">
+                                    <i class="bi bi-trash-fill me-1"></i> Request Delete
+                                </button>
+                            }
+                        }
+                    </div>
+
+                    <div class="card-body">
+                        @if (quote.IsDeleteRequested)
+                        {
+                            <div class="alert alert-danger mb-0">
+                                <div class="fw-bold mb-1">Deletion Requested</div>
+                                <div class="small"><b>Reason:</b> @quote.DeleteRequestReason</div>
+
+                                @if (isAdminOrHead)
+                                {
+                                    <div class="d-flex gap-2 mt-3">
+                                        <button class="btn btn-danger btn-sm fw-bold" @onclick="ConfirmAdminDelete">
+                                            Approve & Delete
+                                        </button>
+                                        <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="RejectDeleteRequest">
+                                            Reject
+                                        </button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="small text-muted mt-2">Waiting for Admin/Head approval…</div>
+                                }
+                            </div>
+                        }
+                        else if (showDeleteBox && !isAdminOrHead)
+                        {
+                            <label class="form-label small text-muted fw-bold">Reason *</label>
+                            <input class="form-control form-control-sm mb-2" @bind="deleteReason" placeholder="Duplicate / wrong record / etc" />
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-danger fw-bold" @onclick="SubmitDeleteRequest">Submit</button>
+                                <button class="btn btn-sm btn-outline-secondary fw-bold" @onclick="ToggleDeleteRequest">Cancel</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="small text-muted">Use this only for duplicates or incorrect entries.</div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Attachments -->
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white fw-bold border-bottom py-3">
+                        Attachments
+                    </div>
+
+                    <div class="card-body p-0">
+                        @if (quote.Attachments == null || !quote.Attachments.Any())
+                        {
+                            <div class="p-3 text-muted small">No attachments found.</div>
+                        }
+                        else
+                        {
+                            <ul class="list-group list-group-flush">
+                                @foreach (var a in quote.Attachments.OrderByDescending(x => x.CreatedAt))
+                                {
+                                    var isPdf = (a.ContentType ?? "").Equals("application/pdf", StringComparison.OrdinalIgnoreCase)
+                                    || (a.FileName ?? "").EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div class="text-truncate" style="max-width:70%" title="@a.FileName">
+                                            <div class="fw-bold small">@a.FileName</div>
+                                            <div class="text-muted small">@a.ContentType • @(Math.Round(a.FileSize / 1024.0 / 1024.0, 2)) MB</div>
+                                        </div>
+
+                                        <div class="d-flex gap-2">
+                                            <a class="btn btn-sm btn-outline-primary"
+                                               href="@($"/api/attachments/download/{a.Id}")"
+                                               target="_blank">
+                                                Download
+                                            </a>
+
+                                            @if (isPdf)
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenPdfPreview(a.Id)">
+                                                    Preview
+                                                </button>
+                                            }
+                                        </div>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                </div>
+
+                <!-- Notes / Followups -->
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white fw-bold border-bottom py-3">
+                        Notes & Follow-ups
+                    </div>
+
+                    <div class="card-body">
+                        <label class="form-label small text-muted fw-bold">Add Note</label>
+                        <textarea class="form-control mb-2" rows="3" @bind="newNote" placeholder="Write note..."></textarea>
+                        <button class="btn btn-warning w-100 fw-bold shadow-sm" @onclick="AddNote">
+                            Add Note
+                        </button>
+
+                        <hr />
+
+                        @if (quote.FollowUps != null && quote.FollowUps.Any())
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var f in quote.FollowUps.OrderByDescending(x => x.CreatedAt))
+                                {
+                                    <div class="list-group-item px-0">
+                                        <div class="small text-muted">@f.CreatedAt.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")</div>
+                                        <div class="small">@f.Notes</div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-muted small">No notes yet.</div>
+                        }
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- PDF Preview Modal -->
+        @if (showPdfModal)
+        {
+            <div class="modal-backdrop fade show"></div>
+            <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.35);">
+                <div class="modal-dialog modal-xl modal-dialog-centered" style="max-width: 1100px;">
+                    <div class="modal-content shadow">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="bi bi-filetype-pdf text-danger me-2"></i>PDF Preview
+                            </h5>
+                            <button type="button" class="btn-close" @onclick="ClosePdfPreview"></button>
+                        </div>
+                        <div class="modal-body p-0">
+                            <iframe src="@($"/api/attachments/inline/{selectedPdfId}")"
+                                    style="width:100%; height:78vh; border:0; background:white;"
+                                    title="PDF Preview"></iframe>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-outline-secondary" @onclick="ClosePdfPreview">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Add / Request Client Modal -->
+        @if (showAddClientModal)
+        {
+            <div class="modal-backdrop fade show"></div>
+            <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.35);">
+                <div class="modal-dialog modal-lg modal-dialog-centered">
+                    <div class="modal-content shadow">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="bi bi-building-add text-primary me-2"></i>
+                                @(isAdminOrHead ? "Add Client from Quote" : "Request New Client")
+                            </h5>
+                            <button type="button" class="btn-close" @onclick="CloseAddClientModal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="row g-3">
+                                <div class="col-md-12">
+                                    <label class="form-label small text-muted fw-bold">Company Name *</label>
+                                    <input class="form-control" @bind="newClient.CompanyName" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label small text-muted fw-bold">Primary Contact</label>
+                                    <input class="form-control" @bind="newClient.PrimaryContactName" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label small text-muted fw-bold">Industry</label>
+                                    <input class="form-control" @bind="newClient.Industry" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label small text-muted fw-bold">Email</label>
+                                    <input class="form-control" @bind="newClient.Email" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label small text-muted fw-bold">Phone</label>
+                                    <input class="form-control" @bind="newClient.Phone" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label small text-muted fw-bold">CR Number</label>
+                                    <input class="form-control" @bind="newClient.CommercialRegistrationNumber" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label small text-muted fw-bold">TRN</label>
+                                    <input class="form-control" @bind="newClient.TaxRegistrationNumber" />
+                                </div>
+
+                                <div class="col-md-12">
+                                    <label class="form-label small text-muted fw-bold">Billing Address</label>
+                                    <textarea class="form-control" rows="3" @bind="newClient.BillingAddress"></textarea>
+                                </div>
+                            </div>
+
+                            <div class="form-text mt-3">
+                                @if (isAdminOrHead)
+                                {
+                                    <span>This client will be added as <b>Approved</b> and linked immediately to this quote.</span>
+                                }
+                                else
+                                {
+                                    <span>This client will be submitted as <b>Pending</b> for approval.</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-outline-secondary" @onclick="CloseAddClientModal" disabled="@savingClient">Cancel</button>
+                            <button class="btn btn-primary fw-bold" @onclick="SaveNewClientFromQuote" disabled="@savingClient">
+                                @(savingClient ? "Saving..." : (isAdminOrHead ? "Add Client" : "Submit Request"))
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private bool isLoading = true;
+    private Quote? quote;
+
+    private List<ApplicationUser> systemUsers = new();
+    private List<Client> verifiedClients = new();
+
+    private bool isAdminOrHead = false;
+    private string? currentUserId;
+
+    private string errorMessage = "";
+    private bool saveSuccess = false;
+
+    private DateTime followUpDateLocal = DateTime.Today.AddDays(1);
+
+    private string newNote = "";
+
+    private bool showDeleteBox = false;
+    private string deleteReason = "";
+
+    private bool showPdfModal = false;
+    private Guid selectedPdfId = Guid.Empty;
+
+    private bool showAddClientModal = false;
+    private bool savingClient = false;
+    private string clientMessage = "";
+    private bool clientMessageOk = false;
+
+    private QuoteClientInputModel newClient = new();
+
+    private Attachment? emlAttachment =>
+        quote?.Attachments?.FirstOrDefault(a =>
+            (a.ContentType ?? "").Equals("message/rfc822", StringComparison.OrdinalIgnoreCase) ||
+            (a.FileName ?? "").EndsWith(".eml", StringComparison.OrdinalIgnoreCase));
+
+    private static readonly List<QuoteStatus> QuoteStatusOptions = new()
+    {
+        QuoteStatus.QuoteNew,
+        QuoteStatus.Sent,
+        QuoteStatus.Won,
+        QuoteStatus.Lost,
+        QuoteStatus.Cancelled
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = auth.User;
+
+        if (user.Identity != null && user.Identity.IsAuthenticated)
+        {
+            currentUserId = UserManager.GetUserId(user);
+
+            var isAdmin = user.IsInRole("Admin");
+            var isHead = user.IsInRole("DepartmentHead") || user.IsInRole("DeptHead") || user.IsInRole("Head") || user.IsInRole("Manager");
+            isAdminOrHead = isAdmin || isHead;
+        }
+
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        errorMessage = "";
+        saveSuccess = false;
+
+        systemUsers = await QuoteService.GetSystemUsersAsync();
+        verifiedClients = await ClientService.GetVerifiedClientsAsync();
+
+        quote = await QuoteService.GetQuoteByIdAsync(Id);
+
+        if (quote != null && quote.NextFollowUpDate.HasValue)
+            followUpDateLocal = quote.NextFollowUpDate.Value.ToLocalTime().Date;
+
+        isLoading = false;
+    }
+
+    private void BackToQuotes() => Nav.NavigateTo("/quotes");
+
+    private async Task Reload() => await LoadData();
+
+    private async Task SaveQuote()
+    {
+        if (quote == null) return;
+
+        try
+        {
+            errorMessage = "";
+            saveSuccess = false;
+
+            if (followUpDateLocal != DateTime.MinValue)
+                quote.NextFollowUpDate = followUpDateLocal.Date.ToUniversalTime();
+
+            if (string.IsNullOrWhiteSpace(quote.OwnerId))
+                quote.OwnerId = null;
+
+            await QuoteService.UpdateQuoteAsync(quote, currentUserId);
+
+            saveSuccess = true;
+
+            Nav.NavigateTo("/quotes");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+
+    private async Task AddNote()
+    {
+        if (quote == null) return;
+        if (string.IsNullOrWhiteSpace(newNote)) return;
+
+        try
+        {
+            errorMessage = "";
+
+            await QuoteService.AddFollowUpAsync(new FollowUp
+            {
+                QuoteId = quote.Id,
+                Notes = newNote.Trim(),
+                DueDate = DateTime.UtcNow,
+                IsCompleted = false
+            });
+
+            newNote = "";
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void ToggleDeleteRequest() => showDeleteBox = !showDeleteBox;
+
+    private async Task SubmitDeleteRequest()
+    {
+        if (quote == null) return;
+        if (string.IsNullOrWhiteSpace(deleteReason)) return;
+
+        try
+        {
+            errorMessage = "";
+
+            quote.IsDeleteRequested = true;
+            quote.DeleteRequestReason = deleteReason.Trim();
+            quote.DeleteRequestedByUserId = currentUserId;
+
+            await QuoteService.UpdateQuoteAsync(quote, currentUserId);
+
+            showDeleteBox = false;
+            deleteReason = "";
+
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task RejectDeleteRequest()
+    {
+        if (quote == null) return;
+
+        try
+        {
+            errorMessage = "";
+
+            quote.IsDeleteRequested = false;
+            quote.DeleteRequestReason = null;
+            quote.DeleteRequestedByUserId = null;
+
+            await QuoteService.UpdateQuoteAsync(quote, currentUserId);
+
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task ConfirmAdminDelete()
+    {
+        if (quote == null) return;
+
+        bool ok = await JS.InvokeAsync<bool>("confirm",
+            "Are you sure you want to permanently delete this quote? This cannot be undone.");
+
+        if (!ok) return;
+
+        try
+        {
+            await QuoteService.DeleteQuoteAsync(quote.Id);
+            BackToQuotes();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void OpenPdfPreview(Guid attachmentId)
+    {
+        selectedPdfId = attachmentId;
+        showPdfModal = true;
+    }
+
+    private void ClosePdfPreview()
+    {
+        showPdfModal = false;
+        selectedPdfId = Guid.Empty;
+    }
+
+    private void OpenClientDirectory()
+    {
+        Nav.NavigateTo("/admin/clients");
+    }
+
+    private void OpenAddClientModal()
+    {
+        clientMessage = "";
+
+        newClient = new QuoteClientInputModel
+        {
+            CompanyName = quote?.ClientName?.Trim() ?? "",
+            Email = quote?.SenderEmail?.Trim() ?? ""
+        };
+
+        showAddClientModal = true;
+    }
+
+    private void CloseAddClientModal()
+    {
+        showAddClientModal = false;
+        savingClient = false;
+    }
+
+    private async Task SaveNewClientFromQuote()
+    {
+        if (quote == null) return;
+        if (savingClient) return;
+
+        clientMessage = "";
+
+        if (string.IsNullOrWhiteSpace(newClient.CompanyName))
+        {
+            clientMessageOk = false;
+            clientMessage = "Company Name is required.";
+            return;
+        }
+
+        savingClient = true;
+
+        try
+        {
+            var allClients = await ClientService.GetAllClientsAsync();
+
+            var existing = allClients.FirstOrDefault(c =>
+                string.Equals((c.CompanyName ?? "").Trim(), newClient.CompanyName.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            if (existing != null)
+            {
+                if (existing.ApprovalStatus == ClientApprovalStatus.Approved)
+                {
+                    quote.ClientId = existing.Id;
+                    await SaveQuote();
+
+                    clientMessageOk = true;
+                    clientMessage = "Existing approved client found and linked to this quote.";
+                    showAddClientModal = false;
+                    await Reload();
+                    return;
+                }
+                else
+                {
+                    clientMessageOk = false;
+                    clientMessage = "A client with the same name already exists in pending/review state.";
+                    return;
+                }
+            }
+
+            var approvalStatus = isAdminOrHead ? ClientApprovalStatus.Approved : ClientApprovalStatus.Pending;
+
+            var entity = new Client
+            {
+                CompanyName = newClient.CompanyName.Trim(),
+                Industry = TrimOrNull(newClient.Industry),
+                PrimaryContactName = TrimOrNull(newClient.PrimaryContactName),
+                Email = TrimOrNull(newClient.Email),
+                Phone = TrimOrNull(newClient.Phone),
+                CommercialRegistrationNumber = TrimOrNull(newClient.CommercialRegistrationNumber),
+                TaxRegistrationNumber = TrimOrNull(newClient.TaxRegistrationNumber),
+                BillingAddress = TrimOrNull(newClient.BillingAddress),
+                ApprovalStatus = approvalStatus,
+                SubmittedByUserId = currentUserId,
+                ApprovedByUserId = approvalStatus == ClientApprovalStatus.Approved ? currentUserId : null,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await ClientService.AddClientAsync(entity);
+
+            if (approvalStatus == ClientApprovalStatus.Approved)
+            {
+                quote.ClientId = entity.Id;
+                await SaveQuote();
+                clientMessageOk = true;
+                clientMessage = "Client added and linked to this quote successfully.";
+            }
+            else
+            {
+                clientMessageOk = true;
+                clientMessage = "Client request submitted successfully for approval.";
+            }
+
+            showAddClientModal = false;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            clientMessageOk = false;
+            clientMessage = "Error saving client: " + ex.Message;
+        }
+        finally
+        {
+            savingClient = false;
+        }
+    }
+
+    private FollowUp? GetLatestFollowUp()
+    {
+        return quote?.FollowUps?
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefault();
+    }
+
+    private string GetLastNoteTimeText()
+    {
+        var latest = GetLatestFollowUp();
+        return latest == null
+            ? "No notes yet"
+            : latest.CreatedAt.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt");
+    }
+
+    private string GetLastNotePreview()
+    {
+        var latest = GetLatestFollowUp();
+        if (latest == null || string.IsNullOrWhiteSpace(latest.Notes))
+            return "No notes available.";
+
+        var text = latest.Notes.Trim();
+
+        if (text.Length > 200)
+            return text.Substring(0, 200) + "...";
+
+        return text;
+    }
+
+    private string GetOwnerName()
+    {
+        if (quote == null) return "-";
+
+        var owner = systemUsers.FirstOrDefault(x => x.Id == quote.OwnerId);
+        if (owner != null && !string.IsNullOrWhiteSpace(owner.FullName))
+            return owner.FullName;
+
+        return "Unassigned";
+    }
+
+    private string? TrimOrNull(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        return s.Trim();
+    }
+
+    private string GetStatusBadgeClass(QuoteStatus s)
+    {
+        return s switch
+        {
+            QuoteStatus.Won => "bg-success",
+            QuoteStatus.Lost => "bg-danger",
+            QuoteStatus.Cancelled => "bg-secondary",
+            QuoteStatus.Sent => "bg-primary",
+            _ => "bg-warning text-dark"
+        };
+    }
+
+    private class QuoteClientInputModel
+    {
+        public string CompanyName { get; set; } = "";
+        public string? Industry { get; set; }
+        public string? PrimaryContactName { get; set; }
+        public string? Email { get; set; }
+        public string? Phone { get; set; }
+        public string? CommercialRegistrationNumber { get; set; }
+        public string? TaxRegistrationNumber { get; set; }
+        public string? BillingAddress { get; set; }
+    }
+}

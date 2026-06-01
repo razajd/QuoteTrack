@@ -1,0 +1,126 @@
+﻿@page "/admin/management/deletions"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@inject IQuoteService QuoteService
+@inject UserManager<ApplicationUser> UserManager
+@inject IJSRuntime JS
+
+<PageTitle>Pending Deletions Queue</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-0"><i class="bi bi-trash-fill text-danger me-2"></i>Pending Deletion Requests</h2>
+        <p class="text-muted mb-0 mt-1">Review and approve requests from the team to permanently delete leads/quotes.</p>
+    </div>
+    <div>
+        <span class="badge bg-danger rounded-pill fs-5 py-2 px-3 shadow-sm">@pendingDeletions.Count() Pending</span>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5"><div class="spinner-border text-danger" role="status"></div></div>
+}
+else if (!pendingDeletions.Any())
+{
+    <div class="card shadow-sm border-0 text-center py-5">
+        <div class="card-body">
+            <i class="bi bi-shield-check text-success" style="font-size: 3rem;"></i>
+            <h4 class="mt-3 fw-bold text-dark">Queue is Empty</h4>
+            <p class="text-muted">No pending deletion requests from the team. Your database is clean!</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card shadow-sm border-0 border-top border-danger border-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">Reference / Client</th>
+                            <th>Requested By</th>
+                            <th>Reason for Deletion</th>
+                            <th class="text-end pe-3">Admin Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var quote in pendingDeletions)
+                        {
+                            var requesterName = systemUsers.FirstOrDefault(u => u.Id == quote.DeleteRequestedByUserId)?.FullName ?? "Unknown User";
+
+                            <tr>
+                                <td class="ps-3 border-start border-danger border-4">
+                                    <div class="fw-bold text-dark">@(string.IsNullOrWhiteSpace(quote.ClientName) ? "Unknown Client" : quote.ClientName)</div>
+                                    <div class="small text-muted font-monospace">@quote.QuoteReference</div>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary text-white"><i class="bi bi-person-fill me-1"></i>@requesterName</span>
+                                </td>
+                                <td>
+                                    <div class="text-danger fw-bold small fst-italic">"@quote.DeleteRequestReason"</div>
+                                </td>
+                                <td class="text-end pe-3">
+                                    <button class="btn btn-sm btn-outline-secondary fw-bold shadow-sm me-2" @onclick="() => RejectDeletion(quote)">
+                                        <i class="bi bi-arrow-counterclockwise me-1"></i> Restore
+                                    </button>
+                                    <button class="btn btn-sm btn-danger fw-bold shadow-sm" @onclick="() => ApproveDeletion(quote.Id)">
+                                        <i class="bi bi-trash-fill me-1"></i> Shred
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private List<Quote> pendingDeletions = new();
+    private List<ApplicationUser> systemUsers = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadQueueAsync();
+        isLoading = false;
+    }
+
+    private async Task LoadQueueAsync()
+    {
+        systemUsers = await UserManager.Users.ToListAsync();
+
+        // Fetch all quotes, then filter down to just the ones begging for deletion
+        var allQuotes = await QuoteService.GetAllQuotesAsync(null, true);
+        pendingDeletions = allQuotes.Where(q => q.IsDeleteRequested).ToList();
+    }
+
+    private async Task RejectDeletion(Quote quote)
+    {
+        // Wipe the deletion request data and put it back in the pipeline
+        quote.IsDeleteRequested = false;
+        quote.DeleteRequestReason = null;
+        quote.DeleteRequestedByUserId = null;
+
+        await QuoteService.UpdateQuoteAsync(quote);
+        await LoadQueueAsync();
+    }
+
+    private async Task ApproveDeletion(Guid id)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", "CRITICAL WARNING:\nThis will permanently erase this record from the database. Proceed?");
+        if (confirmed)
+        {
+            await QuoteService.DeleteQuoteAsync(id);
+            await LoadQueueAsync();
+        }
+    }
+}

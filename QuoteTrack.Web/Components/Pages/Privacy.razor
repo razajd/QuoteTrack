@@ -1,0 +1,14 @@
+﻿@page "/privacy"
+<PageTitle>Privacy Policy - @AppConfig.Current.AppTitle</PageTitle>
+@inject QuoteTrack.Web.Services.AppConfigService AppConfig
+
+<div class="container mt-5 bg-white p-5 shadow-sm rounded">
+    <h2 class="text-primary fw-bold mb-4">Privacy Policy</h2>
+    <p><strong>Last Updated:</strong> @DateTime.Now.ToString("MMMM yyyy")</p>
+    <h5>1. Data Collection</h5>
+    <p>This application collects and securely stores quotation data, client contact information, and internal employee activity solely for the purpose of business pipeline management.</p>
+    <h5>2. Data Security</h5>
+    <p>All stored data, including uploaded attachments and system passwords, are protected using industry-standard hashing and encryption protocols. Access is strictly limited to authorized personnel.</p>
+    <h5>3. Communications</h5>
+    <p>This system automatically monitors designated email inboxes to extract quotation data and sends automated internal reminders. It does not sell or distribute client data to third parties.</p>
+</div>

@@ -1,0 +1,488 @@
+﻿@* QuoteTrack.Web/Components/Pages/SystemHealth.razor *@
+@page "/admin/logs"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+
+@using QuoteTrack.Infrastructure.Logging
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Domain.Entities
+@using Microsoft.EntityFrameworkCore
+@using QuoteTrack.Application.Interfaces
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IServiceScopeFactory ScopeFactory
+@inject IJSRuntime JS
+
+@implements IDisposable
+
+<PageTitle>System Health - QuoteTrack</PageTitle>
+
+<style>
+    .log-msg {
+        white-space: normal;
+        word-break: break-word;
+        line-height: 1.35;
+    }
+
+        .log-msg .dim {
+            color: #6c757d;
+            font-weight: 600;
+        }
+
+        .log-msg .chain {
+            display: inline-block;
+            margin-top: 4px;
+            padding: 6px 8px;
+            border-radius: 10px;
+            background: rgba(0,0,0,0.03);
+            border: 1px solid rgba(0,0,0,0.06);
+        }
+
+    .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+</style>
+
+<div class="container-fluid mt-4 mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1"><i class="bi bi-activity text-primary me-2"></i>System Health & Logs</h2>
+            <div class="text-muted small">This page shows live worker health + system/user audit events.</div>
+        </div>
+
+        <div class="d-flex align-items-center gap-3">
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="autoRefreshSwitch" @bind="autoRefreshEnabled" />
+                <label class="form-check-label small text-muted" for="autoRefreshSwitch">
+                    Auto-refresh (5s)
+                </label>
+            </div>
+
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ManualRefresh">
+                <i class="bi bi-arrow-repeat me-1"></i>Refresh
+            </button>
+
+            <button class="btn btn-sm btn-outline-danger" @onclick="GenerateTestError">
+                <i class="bi bi-bug-fill me-1"></i>Trigger Test Error
+            </button>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 border-start @(IsImapHealthy ? "border-success" : "border-danger") border-4 h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div class="text-muted fw-bold mb-1 text-uppercase small">IMAP Listener</div>
+                        @if (IsImapHealthy)
+                        {
+                            <i class="bi bi-check-circle-fill text-success fs-5"></i>
+                        }
+                        else
+                        {
+                            <i class="bi bi-x-circle-fill text-danger fs-5"></i>
+                        }
+                    </div>
+                    <h5 class="mb-1 @(IsImapHealthy ? "text-success" : "text-danger") fw-bold">
+                        @(IsImapHealthy ? "Active & Monitoring" : "Offline / Stalled")
+                    </h5>
+                    <small class="text-muted">Last heartbeat: @GetTimeAgo(healthState.LastImapCheck)</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 border-start border-primary border-4 h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div class="text-muted fw-bold mb-1 text-uppercase small">Reminder Worker (SMTP)</div>
+                        <i class="bi bi-send-check-fill text-primary fs-5"></i>
+                    </div>
+                    <h5 class="mb-1 text-primary fw-bold">Standing By</h5>
+                    <small class="text-muted">Last run: @GetTimeAgo(healthState.LastSmtpRun)</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 border-start border-info border-4 h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div class="text-muted fw-bold mb-1 text-uppercase small">Registered Accounts</div>
+                        <i class="bi bi-people-fill text-info fs-5"></i>
+                    </div>
+                    <h5 class="mb-1 text-info fw-bold">@totalUsers Active Users</h5>
+                    <small class="text-muted">System Identity Provider</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold"><i class="bi bi-journal-text text-primary me-2"></i>Audit Log</h5>
+                <span class="text-muted small">Showing up to 800 rows (combined system + DB activity)</span>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            <div class="p-3 border-bottom bg-white">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label text-muted small fw-bold">Category</label>
+                        <select class="form-select form-select-sm" @bind="filterCategory">
+                            <option value="All">All</option>
+                            <option value="System">System events</option>
+                            <option value="User">User actions</option>
+                            <option value="Login">Login events</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label text-muted small fw-bold">From</label>
+                        <input type="date" class="form-control form-control-sm" @bind="filterFrom" @bind:format="yyyy-MM-dd" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label text-muted small fw-bold">To</label>
+                        <input type="date" class="form-control form-control-sm" @bind="filterTo" @bind:format="yyyy-MM-dd" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label text-muted small fw-bold">Search</label>
+                        <input type="text" class="form-control form-control-sm" placeholder="Source / user / text..." @bind="filterSearch" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                <table class="table table-hover table-striped mb-0 align-middle">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th style="width: 15%;">Timestamp</th>
+                            <th style="width: 12%;">Category</th>
+                            <th style="width: 10%;">Type</th>
+                            <th style="width: 18%;">Source / User</th>
+                            <th>Message / Details</th>
+                            <th style="width: 10%;" class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!FilteredLogs.Any())
+                        {
+                            <tr><td colspan="6" class="text-center text-muted py-4">No events match the selected filters.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var log in FilteredLogs)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="fw-bold text-dark small">@log.TimestampUtc.ToLocalTime().ToString("dd MMM yyyy")</div>
+                                        <div class="text-muted small">@log.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border fw-bold">@log.Category</span>
+                                    </td>
+                                    <td>
+                                        @{
+                                            var badgeClass = log.Type switch
+                                            {
+                                                                "ERROR" => "bg-danger",
+                                                                "LOGIN" => "bg-info text-dark",
+                                                                "SUCCESS" => "bg-success",
+                                                                "USER" => "bg-secondary",
+                                                _ => "bg-secondary"
+                                            };
+                                        }
+                                        <span class="badge @badgeClass fw-bold">@log.Type</span>
+                                    </td>
+                                    <td class="fw-bold small text-muted">@log.SourceOrUser</td>
+                                    <td class="small log-msg">
+                                        @RenderLogMessage(log)
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-primary"
+                                                @onclick="() => OpenDetails(log)">
+                                            <i class="bi bi-eye me-1"></i>View
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* Details Modal *@
+@if (detailsOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.45);" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title mb-0">Log Details</h5>
+                        <div class="text-muted small">
+                            @selectedLog.TimestampUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm:ss")
+                            • <b>@selectedLog.Type</b> • @selectedLog.SourceOrUser
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CloseDetails"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2"><span class="badge bg-light text-dark border fw-bold">@selectedLog.Category</span></div>
+
+                    <div class="mb-3">
+                        <div class="text-muted small fw-bold mb-1">Source</div>
+                        <div class="mono">@selectedLog.Source</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="text-muted small fw-bold mb-1">Message</div>
+                        <pre class="mono" style="white-space: pre-wrap; word-break: break-word;">@selectedLog.Message</pre>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CopySelected">
+                        <i class="bi bi-clipboard me-1"></i>Copy
+                    </button>
+                    <button class="btn btn-primary" @onclick="CloseDetails">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private HealthState healthState = new();
+    private int totalUsers = 0;
+    private System.Threading.Timer? refreshTimer;
+
+    private List<UnifiedLogRow> combinedLogs = new();
+
+    private string filterCategory = "All";
+    private DateTime filterFrom = DateTime.Today.AddDays(-7);
+    private DateTime filterTo = DateTime.Today;
+    private string filterSearch = string.Empty;
+
+    private bool autoRefreshEnabled = true;
+
+    // Modal
+    private bool detailsOpen = false;
+    private UnifiedLogRow selectedLog = new UnifiedLogRow();
+
+    // If the IMAP worker hasn't reported a heartbeat in 5 minutes, mark it as offline
+    private bool IsImapHealthy => (DateTime.UtcNow - healthState.LastImapCheck).TotalMinutes < 5;
+
+    protected override async Task OnInitializedAsync()
+    {
+        totalUsers = await UserManager.Users.CountAsync();
+        await RefreshDataAsync();
+
+        refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            if (!autoRefreshEnabled) return;
+
+            await RefreshDataAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, 5000, 5000);
+    }
+
+    private async Task ManualRefresh()
+    {
+        await RefreshDataAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshDataAsync()
+    {
+        healthState = SystemLogger.GetState();
+        await LoadDbLogsAsync();
+    }
+
+    private async Task LoadDbLogsAsync()
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
+
+            var fromUtc = filterFrom.Date.ToUniversalTime();
+            var toUtc = filterTo.Date.AddDays(1).AddTicks(-1).ToUniversalTime();
+
+            var activity = await db.ActivityLogs
+                .Include(a => a.User)
+                .Where(a => a.Timestamp >= fromUtc && a.Timestamp <= toUtc)
+                .OrderByDescending(a => a.Timestamp)
+                .Take(500)
+                .ToListAsync();
+
+            var list = new List<UnifiedLogRow>();
+
+            foreach (var s in healthState.RecentLogs)
+                list.Add(UnifiedLogRow.FromSystem(s));
+
+            foreach (var a in activity)
+                list.Add(UnifiedLogRow.FromActivity(a));
+
+            combinedLogs = list
+                .OrderByDescending(x => x.TimestampUtc)
+                .Take(800)
+                .ToList();
+        }
+        catch
+        {
+            combinedLogs = healthState.RecentLogs.Select(UnifiedLogRow.FromSystem).ToList();
+        }
+    }
+
+    private List<UnifiedLogRow> FilteredLogs
+    {
+        get
+        {
+            IEnumerable<UnifiedLogRow> q = combinedLogs;
+
+            if (!string.Equals(filterCategory, "All", StringComparison.OrdinalIgnoreCase))
+                q = q.Where(x => string.Equals(x.Category, filterCategory, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(filterSearch))
+            {
+                var s = filterSearch.Trim();
+                q = q.Where(x => (x.SourceOrUser ?? string.Empty).Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                                 (x.Message ?? string.Empty).Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                                 (x.Source ?? string.Empty).Contains(s, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return q.Take(800).ToList();
+        }
+    }
+
+    private RenderFragment RenderLogMessage(UnifiedLogRow log) => builder =>
+    {
+        // If your improved exception string uses " | " separators, render it nicely.
+        var msg = log.Message ?? "";
+
+        if (log.Type == "ERROR")
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", "text-danger fw-bold");
+            builder.AddContent(2, Shorten(msg, 220));
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.AddContent(3, Shorten(msg, 240));
+        }
+
+        // If contains inner-ex chain separators, show a hint
+        if (msg.Contains(" | "))
+        {
+            builder.OpenElement(10, "div");
+            builder.AddAttribute(11, "class", "chain small mono");
+            builder.AddContent(12, "Contains exception chain (click View)");
+            builder.CloseElement();
+        }
+    };
+
+    private void GenerateTestError()
+    {
+        SystemLogger.LogEvent("ERROR", "Manual Test", "The Administrator triggered a manual test error. Checking if alert email was sent.");
+    }
+
+    private string GetTimeAgo(DateTime dt)
+    {
+        if (dt == DateTime.MinValue) return "Never";
+        var ts = DateTime.UtcNow - dt;
+        if (ts.TotalSeconds < 60) return "Just now";
+        if (ts.TotalMinutes < 60) return $"{(int)ts.TotalMinutes} mins ago";
+        if (ts.TotalHours < 24) return $"{(int)ts.TotalHours} hours ago";
+        return $"{(int)ts.TotalDays} days ago";
+    }
+
+    private void OpenDetails(UnifiedLogRow log)
+    {
+        selectedLog = log;
+        detailsOpen = true;
+    }
+
+    private void CloseDetails()
+    {
+        detailsOpen = false;
+    }
+
+    private async Task CopySelected()
+    {
+        var text =
+$@"Timestamp: {selectedLog.TimestampUtc.ToLocalTime():dd MMM yyyy HH:mm:ss}
+Category: {selectedLog.Category}
+Type: {selectedLog.Type}
+Source/User: {selectedLog.SourceOrUser}
+Source: {selectedLog.Source}
+
+Message:
+{selectedLog.Message}";
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    private static string Shorten(string s, int max)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        s = s.Replace("\r", " ").Replace("\n", " ").Trim();
+        return s.Length <= max ? s : s.Substring(0, max) + "...";
+    }
+
+    public void Dispose()
+    {
+        refreshTimer?.Dispose();
+    }
+
+    private class UnifiedLogRow
+    {
+        public DateTime TimestampUtc { get; set; }
+        public string Category { get; set; } = "System"; // System / User / Login
+        public string Type { get; set; } = "INFO";
+        public string Source { get; set; } = string.Empty;
+        public string SourceOrUser { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+
+        public static UnifiedLogRow FromSystem(LogEntry s)
+        {
+            var category = string.Equals(s.Type, "LOGIN", StringComparison.OrdinalIgnoreCase) ? "Login" : "System";
+            return new UnifiedLogRow
+            {
+                TimestampUtc = s.Timestamp,
+                Category = category,
+                Type = s.Type,
+                Source = s.Source,
+                SourceOrUser = s.Source,
+                Message = s.Message
+            };
+        }
+
+        public static UnifiedLogRow FromActivity(ActivityLog a)
+        {
+            var action = a.Action ?? string.Empty;
+            var isLogin = action.StartsWith("LOGIN", StringComparison.OrdinalIgnoreCase);
+            var category = isLogin ? "Login" : "User";
+
+            var userLabel = !string.IsNullOrWhiteSpace(a.User?.FullName)
+                ? a.User.FullName
+                : (!string.IsNullOrWhiteSpace(a.User?.Email) ? a.User.Email : a.UserId);
+
+            return new UnifiedLogRow
+            {
+                TimestampUtc = a.Timestamp,
+                Category = category,
+                Type = isLogin ? "LOGIN" : "USER",
+                Source = action,
+                SourceOrUser = userLabel,
+                Message = string.IsNullOrWhiteSpace(a.Details) ? action : a.Details
+            };
+        }
+    }
+}

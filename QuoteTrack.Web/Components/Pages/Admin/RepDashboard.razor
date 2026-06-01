@@ -1,0 +1,242 @@
+﻿@page "/admin/management/rep/{UserId}"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,DeptHead")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.DependencyInjection
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+@inject IQuoteService QuoteService
+@inject IServiceScopeFactory ScopeFactory
+@inject NavigationManager NavManager
+
+<PageTitle>Rep Dashboard Drill-down</PageTitle>
+
+<div class="mb-4">
+    <button type="button" class="btn btn-outline-secondary btn-sm mb-3" @onclick='() => NavManager.NavigateTo("/admin/management")'>
+        <i class="bi bi-arrow-left me-1"></i> Back to Department Overview
+    </button>
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h2 class="mb-0"><i class="bi bi-person-badge text-primary me-2"></i>@repName's Dashboard</h2>
+            <p class="text-muted mb-0 mt-1">Deep dive into current pipeline, tasks, and recent activity.</p>
+        </div>
+        <div>
+            <span class="badge bg-primary fs-5 py-2 px-3 shadow-sm">
+                Pipeline Value: BHD @activeQuotes.Sum(q => q.QuoteValue ?? 0).ToString("N0")
+            </span>
+        </div>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
+}
+else if (!userExists)
+{
+    <div class="alert alert-danger shadow-sm">User not found or deactivated.</div>
+}
+else
+{
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-0 mb-4 border-top border-warning border-4">
+                <div class="card-header bg-white border-bottom fw-bold py-3 d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-lightning-charge-fill text-warning me-2"></i>Discovery Leads (Pre-Quote)</span>
+                    <span class="badge bg-warning text-dark rounded-pill">@discoveryLeads.Count</span>
+                </div>
+                <div class="card-body p-0">
+                    @if (!discoveryLeads.Any())
+                    {
+                        <div class="p-4 text-center text-muted small fst-italic">No active discovery leads.</div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var lead in discoveryLeads.OrderBy(q => q.CreatedAt))
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center p-3">
+                                    <div>
+                                        <div class="fw-bold text-dark">@(string.IsNullOrWhiteSpace(lead.ClientName) ? "Unknown" : lead.ClientName)</div>
+                                        <div class="small text-muted text-truncate" style="max-width: 300px;">@lead.Subject</div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="badge bg-light text-dark border mb-1">@lead.LeadSource</div>
+                                        <br />
+                                        <a href="/lead/@lead.Id" class="btn btn-sm btn-outline-primary shadow-sm" style="font-size: 0.75rem;">View Lead</a>
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0 mb-4 border-top border-success border-4">
+                <div class="card-header bg-white border-bottom fw-bold py-3 d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-file-earmark-text-fill text-success me-2"></i>Active Quotes</span>
+                    <span class="badge bg-success rounded-pill">@activeQuotes.Count</span>
+                </div>
+                <div class="card-body p-0">
+                    @if (!activeQuotes.Any())
+                    {
+                        <div class="p-4 text-center text-muted small fst-italic">No active quotes pending.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-3">Reference / Client</th>
+                                        <th>Value</th>
+                                        <th>Next Step</th>
+                                        <th class="pe-3 text-end">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var quote in activeQuotes.OrderBy(q => q.NextFollowUpDate ?? DateTime.MaxValue))
+                                    {
+                                        var isOverdue = quote.NextFollowUpDate.HasValue && quote.NextFollowUpDate.Value < DateTime.UtcNow;
+
+                                        <tr>
+                                            <td class="ps-3">
+                                                <div class="fw-bold text-dark">@(string.IsNullOrWhiteSpace(quote.ClientName) ? "Unknown" : quote.ClientName)</div>
+                                                <div class="small text-muted font-monospace">@quote.QuoteReference</div>
+                                            </td>
+                                            <td class="text-success fw-bold">
+                                                @(quote.QuoteValue > 0 ? $"{quote.Currency} {quote.QuoteValue:N2}" : "TBD")
+                                            </td>
+                                            <td>
+                                                @if (quote.NextFollowUpDate.HasValue)
+                                                {
+                                                    <span class="badge @(isOverdue ? "bg-danger" : "bg-info text-dark")">
+                                                        @if (isOverdue)
+                                                        {
+                                                            <i class="bi bi-exclamation-circle-fill me-1"></i>
+                                                        }
+                                                        @quote.NextFollowUpDate.Value.ToLocalTime().ToString("MMM dd")
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted small fst-italic">None set</span>
+                                                }
+                                            </td>
+                                            <td class="pe-3 text-end">
+                                                <a href="/quote/@quote.Id" class="btn btn-sm btn-primary shadow-sm" style="font-size: 0.75rem;">Open</a>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+
+            @if (activeQuotes.Any(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < DateTime.UtcNow))
+            {
+                <div class="card shadow-sm border-0 mb-4 bg-danger bg-opacity-10 border-danger border">
+                    <div class="card-body">
+                        <h6 class="fw-bold text-danger mb-2"><i class="bi bi-exclamation-triangle-fill me-2"></i>Attention Required</h6>
+                        <p class="small text-danger mb-0">This rep has <strong>@activeQuotes.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < DateTime.UtcNow)</strong> overdue tasks that need immediate follow-up.</p>
+                    </div>
+                </div>
+            }
+
+            <div class="card shadow-sm border-0 mb-4 border-top border-secondary border-4">
+                <div class="card-header bg-white border-bottom fw-bold py-3">
+                    <i class="bi bi-clock-history text-secondary me-2"></i> Recent Activity Log
+                </div>
+                <div class="card-body p-0" style="max-height: 500px; overflow-y: auto;">
+                    @if (!recentActivity.Any())
+                    {
+                        <div class="p-4 text-center text-muted small fst-italic">No recent activity recorded for this rep.</div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var log in recentActivity)
+                            {
+                                <div class="list-group-item p-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="fw-bold text-dark small">@log.Action</span>
+                                        <span class="text-muted" style="font-size: 0.7rem;">@GetTimeAgo(log.Timestamp)</span>
+                                    </div>
+                                    <p class="mb-0 text-muted" style="font-size: 0.8rem;">@log.Details</p>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string UserId { get; set; } = string.Empty;
+
+    private bool isLoading = true;
+    private bool userExists = false;
+    private string repName = string.Empty;
+
+    private List<Quote> discoveryLeads = new();
+    private List<Quote> activeQuotes = new();
+    private List<ActivityLog> recentActivity = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var systemUsers = await QuoteService.GetSystemUsersAsync();
+        var targetUser = systemUsers.FirstOrDefault(u => u.Id == UserId);
+
+        if (targetUser != null)
+        {
+            userExists = true;
+            repName = targetUser.FullName;
+
+            // Fetch Quotes
+            var allQuotes = await QuoteService.GetAllQuotesAsync(null, true);
+            var repPipeline = allQuotes.Where(q => q.OwnerId == UserId && !q.IsDeleteRequested).ToList();
+
+            // Split pipeline logic
+            discoveryLeads = repPipeline.Where(q => q.Status == QuoteStatus.New).ToList();
+            activeQuotes = repPipeline.Where(q => q.Status == QuoteStatus.Sent).ToList();
+
+            // Safely Fetch Activity Logs using DbContext factory scope
+            try
+            {
+                using var scope = ScopeFactory.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
+
+                recentActivity = await dbContext.ActivityLogs
+                    .Where(a => a.UserId == UserId)
+                    .OrderByDescending(a => a.Timestamp)
+                    .Take(30) // Get the last 30 actions
+                    .ToListAsync();
+            }
+            catch
+            {
+                // Failsafe empty list if DB query fails
+                recentActivity = new List<ActivityLog>();
+            }
+        }
+
+        isLoading = false;
+    }
+
+    private string GetTimeAgo(DateTime dt)
+    {
+        var ts = DateTime.UtcNow - dt;
+        if (ts.TotalMinutes < 60) return $"{(int)ts.TotalMinutes}m ago";
+        if (ts.TotalHours < 24) return $"{(int)ts.TotalHours}h ago";
+        return $"{(int)ts.TotalDays}d ago";
+    }
+}

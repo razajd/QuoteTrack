@@ -1,0 +1,396 @@
+@* QuoteTrack.Web/Components/Layout/MainLayout.razor *@
+@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Extensions.DependencyInjection
+@using QuoteTrack.Application.Interfaces
+@inject QuoteTrack.Web.Services.AppConfigService ConfigService
+@inject NavigationManager NavManager
+@inject IServiceScopeFactory ScopeFactory
+
+<PageTitle>@ConfigService.Current.AppTitle</PageTitle>
+
+<style>
+    :root {
+        --theme-primary: @ConfigService.Current.PrimaryColor;
+        --theme-nav: @ConfigService.Current.NavBackgroundColor;
+        --theme-bg: @ConfigService.Current.BackgroundColor;
+        --theme-surface: @ConfigService.Current.SurfaceColor;
+        --theme-surface-alt: @ConfigService.Current.SurfaceAltColor;
+        --theme-text: @ConfigService.Current.TextColor;
+        --theme-muted: @ConfigService.Current.MutedTextColor;
+        --theme-border: @ConfigService.Current.BorderColor;
+        --theme-font: @ConfigService.Current.FontFamily;
+        --theme-heading-font: @ConfigService.Current.HeadingFontFamily;
+        --theme-radius: @(ConfigService.Current.CardRadiusPx)px;
+    }
+
+    body {
+        background-color: var(--theme-bg);
+        color: var(--theme-text);
+        font-family: var(--theme-font);
+        margin: 0;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+        font-family: var(--theme-heading-font);
+        color: var(--theme-text);
+    }
+
+    .nexcel-app-wrapper {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+    }
+
+    .nexcel-header {
+        background-color: var(--theme-surface);
+        padding: 15px 40px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 3px solid var(--theme-primary);
+    }
+
+    .nexcel-logo {
+        font-size: 24px;
+        font-weight: 900;
+        color: var(--theme-text);
+        text-decoration: none;
+        white-space: nowrap;
+        font-family: var(--theme-heading-font);
+    }
+
+    .nexcel-search {
+        display: flex;
+        width: 420px;
+        margin: 0 20px;
+    }
+
+    .nexcel-search input {
+        border-radius: calc(var(--theme-radius) * 0.45) 0 0 calc(var(--theme-radius) * 0.45);
+        border: 1px solid var(--theme-border);
+        background-color: var(--theme-surface-alt);
+        color: var(--theme-text);
+    }
+
+    .nexcel-search button {
+        border-radius: 0 calc(var(--theme-radius) * 0.45) calc(var(--theme-radius) * 0.45) 0;
+        background-color: var(--theme-primary);
+        border: none;
+        color: #fff;
+        padding: 0 20px;
+    }
+
+    .nexcel-navbar {
+        background-color: var(--theme-nav);
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding: 0 28px;
+        width: 100%;
+        position: relative;
+        z-index: 1020;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .nexcel-nav-link {
+        color: #fff;
+        text-decoration: none;
+        padding: 15px 18px;
+        font-weight: 700;
+        font-size: 13px;
+        text-transform: uppercase;
+        transition: 0.2s;
+        display: flex;
+        align-items: center;
+        height: 100%;
+        letter-spacing: 0.02em;
+    }
+
+    .nexcel-nav-link:hover,
+    .nexcel-nav-link.active {
+        background-color: rgba(255,255,255,0.08);
+        color: var(--theme-primary);
+    }
+
+    .main-content {
+        padding: 40px;
+        flex-grow: 1;
+    }
+
+    .nexcel-dropdown {
+        cursor: pointer;
+    }
+
+    .nexcel-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        min-width: 260px;
+        z-index: 1050;
+        background-color: var(--theme-surface);
+        border-radius: 0 0 calc(var(--theme-radius) * 0.55) calc(var(--theme-radius) * 0.55);
+        padding: 8px 0;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        list-style: none;
+        margin: 0;
+        border: 1px solid var(--theme-border);
+    }
+
+    .nexcel-dropdown:hover .nexcel-dropdown-menu {
+        display: block;
+    }
+
+    .nexcel-dropdown-item {
+        display: block;
+        width: 100%;
+        padding: 0.6rem 1.5rem;
+        color: var(--theme-text);
+        text-decoration: none;
+        font-size: 14px;
+        transition: 0.2s;
+    }
+
+    .nexcel-dropdown-item:hover {
+        color: var(--theme-primary);
+        background-color: rgba(0,0,0,0.04);
+    }
+
+    .nexcel-dropdown-divider {
+        height: 0;
+        margin: 0.4rem 0;
+        border-top: 1px solid var(--theme-border);
+    }
+
+    .theme-footer {
+        background-color: var(--theme-surface);
+        color: var(--theme-muted);
+        border-top: 1px solid var(--theme-border);
+    }
+
+    .theme-user-name {
+        color: var(--theme-text);
+    }
+
+    @@media (max-width: 1100px) {
+        .nexcel-header {
+            gap: 14px;
+            padding: 14px 20px;
+            flex-wrap: wrap;
+        }
+
+        .nexcel-search {
+            width: 100%;
+            margin: 0;
+            order: 3;
+        }
+
+        .main-content {
+            padding: 24px 16px;
+        }
+
+        .nexcel-navbar {
+            padding: 0 8px;
+        }
+    }
+</style>
+
+<div class="nexcel-app-wrapper">
+    <header class="nexcel-header shadow-sm">
+        @if (string.IsNullOrWhiteSpace(ConfigService.Current.LogoUrl))
+        {
+            <a href="/" class="nexcel-logo">@ConfigService.Current.AppTitle</a>
+        }
+        else
+        {
+            <a href="/"><img src="@ConfigService.Current.LogoUrl" alt="Logo" style="max-height: 40px;" /></a>
+        }
+
+        <form class="nexcel-search m-0" action="/searchresults" method="get">
+            <input type="text" name="q" class="form-control" placeholder="Search client, reference, sender or help..." required>
+            <button type="submit" class="btn"><i class="bi bi-search"></i></button>
+        </form>
+
+        <div class="d-flex align-items-center">
+            <AuthorizeView Roles="Admin,Finance,DeptHead">
+                <div class="dropdown me-4">
+                    <button class="btn btn-link position-relative p-0 theme-user-name" id="notifBell" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-bell-fill fs-4"></i>
+                        @if (totalAlerts > 0)
+                        {
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem;">
+                                @totalAlerts
+                            </span>
+                        }
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow border-0 mt-3 p-0" style="min-width: 300px;">
+                        <li class="dropdown-header bg-light fw-bold py-3 text-uppercase small">Pending Actions</li>
+
+                        <AuthorizeView Roles="Admin,Finance" Context="finContext">
+                            @if (pendingClientCount > 0)
+                            {
+                                <li>
+                                    <a class="dropdown-item py-2 border-bottom" href="/admin/clients">
+                                        <i class="bi bi-building-add text-warning me-2"></i> @pendingClientCount Client Approvals Required
+                                    </a>
+                                </li>
+                            }
+                        </AuthorizeView>
+
+                        <AuthorizeView Roles="Admin,DeptHead" Context="headContext">
+                            @if (unassignedLeadCount > 0)
+                            {
+                                <li>
+                                    <a class="dropdown-item py-2 border-bottom" href="/admin/management/dispatch">
+                                        <i class="bi bi-person-plus text-primary me-2"></i> @unassignedLeadCount Unassigned Leads
+                                    </a>
+                                </li>
+                            }
+                        </AuthorizeView>
+
+                        <AuthorizeView Roles="Admin" Context="adminContext">
+                            @if (pendingDeletionCount > 0)
+                            {
+                                <li>
+                                    <a class="dropdown-item py-2 text-danger fw-bold" href="/admin/management/deletions">
+                                        <i class="bi bi-trash-fill text-danger me-2"></i> @pendingDeletionCount Deletion Requests
+                                    </a>
+                                </li>
+                            }
+                        </AuthorizeView>
+
+                        @if (totalAlerts == 0)
+                        {
+                            <li class="p-4 text-center text-muted small">
+                                <i class="bi bi-check2-circle fs-3 d-block mb-2 text-success"></i>
+                                All clear! No pending tasks.
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </AuthorizeView>
+
+            <AuthorizeView>
+                <Authorized>
+                    <div class="me-4 fw-bold d-flex align-items-center theme-user-name">
+                        <i class="bi bi-person-circle me-2 text-muted fs-5"></i>
+                        <div class="d-flex flex-column">
+                            <span style="font-size: 13px;">@context.User.Identity?.Name</span>
+                            <a href="/profile" class="small text-decoration-none" style="font-size: 11px; color: var(--theme-primary);">My Profile</a>
+                        </div>
+                    </div>
+                    <form action="/api/logout" method="post" class="m-0 p-0">
+                        <AntiforgeryToken />
+                        <button type="submit" class="btn btn-sm btn-outline-danger fw-bold">Logout</button>
+                    </form>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+    </header>
+
+    <nav class="nexcel-navbar shadow">
+        <NavLink class="nexcel-nav-link" href="/" Match="NavLinkMatch.All">Home</NavLink>
+
+        <AuthorizeView>
+            <Authorized>
+                <NavLink class="nexcel-nav-link" href="/quotes">Quotes</NavLink>
+                <NavLink class="nexcel-nav-link" href="/myleads">My Leads</NavLink>
+                <NavLink class="nexcel-nav-link" href="/lead-history">Lead History</NavLink>
+                <NavLink class="nexcel-nav-link" href="/help">Help Center</NavLink>
+            </Authorized>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="Admin,Finance">
+            <Authorized>
+                <NavLink class="nexcel-nav-link" href="/admin/clients">Client Directory</NavLink>
+            </Authorized>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="Admin,DeptHead">
+            <Authorized>
+                <NavLink class="nexcel-nav-link" href="/admin/users">User Management</NavLink>
+                <NavLink class="nexcel-nav-link" href="/admin/logs">System Logs</NavLink>
+                <NavLink class="nexcel-nav-link" href="/settings">System Settings</NavLink>
+
+                <div class="nav-item nexcel-dropdown d-inline-block position-relative">
+                    <a class="nexcel-nav-link text-decoration-none">
+                        Management <i class="bi bi-chevron-down ms-1" style="font-size: 0.8em;"></i>
+                    </a>
+
+                    <ul class="nexcel-dropdown-menu shadow">
+                        <li><a class="nexcel-dropdown-item fw-bold text-primary" href="/admin/management/dispatch"><i class="bi bi-diagram-3 me-2"></i>Lead Dispatch Board</a></li>
+                        <li><a class="nexcel-dropdown-item fw-bold text-danger" href="/admin/management/deletions"><i class="bi bi-trash-fill me-2"></i>Deletion Queue</a></li>
+                        <li><div class="nexcel-dropdown-divider"></div></li>
+
+                        <li><a class="nexcel-dropdown-item fw-bold text-primary" href="/admin/management"><i class="bi bi-speedometer2 me-2"></i>Overview Dashboard</a></li>
+                        <li><div class="nexcel-dropdown-divider"></div></li>
+                        <li><a class="nexcel-dropdown-item" href="/admin/management/velocity"><i class="bi bi-funnel text-secondary me-2"></i>Pipeline Velocity</a></li>
+                        <li><a class="nexcel-dropdown-item" href="/admin/management/forecasting"><i class="bi bi-graph-up text-success me-2"></i>Revenue Forecasting</a></li>
+                        <li><a class="nexcel-dropdown-item" href="/admin/management/workload"><i class="bi bi-calendar-week text-info me-2"></i>Workload Heatmap</a></li>
+                        <li><a class="nexcel-dropdown-item" href="/admin/management/roi"><i class="bi bi-pie-chart text-warning me-2"></i>Lead Source ROI</a></li>
+                        <li><div class="nexcel-dropdown-divider"></div></li>
+                        <li><a class="nexcel-dropdown-item text-danger" href="/admin/management/alerts"><i class="bi bi-exclamation-triangle me-2"></i>Deal Rotting Alerts</a></li>
+                    </ul>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </nav>
+
+    <main class="main-content">
+        @Body
+    </main>
+
+    <footer class="text-center py-4 small mt-auto theme-footer">
+        &copy; @DateTime.Now.Year <strong>@ConfigService.Current.AppTitle</strong>. All rights reserved.
+    </footer>
+</div>
+
+@code {
+    private int pendingClientCount = 0;
+    private int unassignedLeadCount = 0;
+    private int pendingDeletionCount = 0;
+
+    private int totalAlerts => pendingClientCount + unassignedLeadCount + pendingDeletionCount;
+    private string? currentPath;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var newPath = NavManager.ToBaseRelativePath(NavManager.Uri);
+
+        if (firstRender || currentPath != newPath)
+        {
+            currentPath = newPath;
+            await RefreshNotificationCounts();
+        }
+    }
+
+    private async Task RefreshNotificationCounts()
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var clientSvc = scope.ServiceProvider.GetRequiredService<IClientService>();
+            var quoteSvc = scope.ServiceProvider.GetRequiredService<IQuoteService>();
+
+            var clients = await clientSvc.GetAllClientsAsync();
+            pendingClientCount = clients.Count(c => c.ApprovalStatus == QuoteTrack.Domain.Enums.ClientApprovalStatus.Pending);
+
+            var quotes = await quoteSvc.GetAllQuotesAsync(null, true);
+
+            unassignedLeadCount = quotes.Count(q =>
+                string.IsNullOrEmpty(q.OwnerId) &&
+                !q.IsDeleteRequested &&
+                q.Status != QuoteTrack.Domain.Enums.QuoteStatus.Won &&
+                q.Status != QuoteTrack.Domain.Enums.QuoteStatus.Lost);
+
+            pendingDeletionCount = quotes.Count(q => q.IsDeleteRequested);
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Silently handle exceptions
+        }
+    }
+}

@@ -1,0 +1,194 @@
+@page "/sop"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@inject QuoteTrack.Web.Services.AppConfigService ConfigService
+@inject QuoteTrack.Web.Services.SupportRequestService SupportRequest
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<QuoteTrack.Domain.Entities.ApplicationUser> UserManager
+
+<PageTitle>SOP & Help</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0"><i class="bi bi-journal-text text-primary me-2"></i>SOP & Help</h2>
+        <span class="badge bg-light text-dark border">Support: @ConfigService.Current.SupportRequestEmail</span>
+    </div>
+
+    <div class="row">
+        <div class="col-md-3 mb-3">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white fw-bold">Index</div>
+                <div class="list-group list-group-flush">
+                    <a class="list-group-item list-group-item-action" href="#overview">Overview</a>
+                    <a class="list-group-item list-group-item-action" href="#ingestion">Email Ingestion</a>
+                    <a class="list-group-item list-group-item-action" href="#quotes">Quotes & Leads</a>
+                    <a class="list-group-item list-group-item-action" href="#followups">Follow-ups</a>
+                    <a class="list-group-item list-group-item-action" href="#attachments">Attachments</a>
+                    <a class="list-group-item list-group-item-action" href="#faq">FAQ</a>
+                    <a class="list-group-item list-group-item-action" href="#request">Submit a Request</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-9">
+            <div class="card shadow-sm border-0 mb-3" id="overview">
+                <div class="card-header bg-white fw-bold">Overview</div>
+                <div class="card-body">
+                    <p class="mb-0">This system captures incoming and outgoing quotations, organizes them into Leads/Quotes, and helps teams track follow-ups, ownership, and attachments.</p>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0 mb-3" id="ingestion">
+                <div class="card-header bg-white fw-bold">Email Ingestion</div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li><b>Leads inbox</b> is used for new opportunities and incoming requests.</li>
+                        <li><b>Quotes inbox</b> is used for outgoing quotations and quote tracking.</li>
+                        <li>Sender auto-assignment happens when the sender exists as a user in the system.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0 mb-3" id="quotes">
+                <div class="card-header bg-white fw-bold">Quotes & Leads</div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li>Open a record to see details, status, value, client, and the original email body.</li>
+                        <li>Admins can reassign ownership to the right team member.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0 mb-3" id="followups">
+                <div class="card-header bg-white fw-bold">Follow-ups</div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li>Set the <b>Next follow-up date</b> and add notes. Notes are timestamped automatically.</li>
+                        <li>Follow-ups due appear on the dashboard.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0 mb-3" id="attachments">
+                <div class="card-header bg-white fw-bold">Attachments</div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li>Attach screenshots, PDFs, or images on the Quote Details page.</li>
+                        <li>PDFs/images can be previewed inline and also downloaded.</li>
+                        <li>The original email (.eml) is viewable within the Quote Details page.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0 mb-3" id="faq">
+                <div class="card-header bg-white fw-bold">FAQ</div>
+                <div class="card-body">
+                    <div class="accordion" id="faqAcc">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="h1">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#c1">Why is a record unassigned?</button>
+                            </h2>
+                            <div id="c1" class="accordion-collapse collapse show" data-bs-parent="#faqAcc">
+                                <div class="accordion-body">If the sender email does not match an existing user account, the record remains unassigned until an admin assigns it.</div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="h2">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c2">Where can I see the original email?</button>
+                            </h2>
+                            <div id="c2" class="accordion-collapse collapse" data-bs-parent="#faqAcc">
+                                <div class="accordion-body">Open Quote Details and view the embedded .eml viewer on the right panel.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0" id="request">
+                <div class="card-header bg-white fw-bold">Submit a Request / Problem / Suggestion</div>
+                <div class="card-body">
+                    @if (!string.IsNullOrWhiteSpace(statusMsg))
+                    {
+                        <div class="alert @(statusOk ? "alert-success" : "alert-danger")">@statusMsg</div>
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Subject</label>
+                        <input class="form-control" @bind="reqSubject" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Message</label>
+                        <textarea class="form-control" rows="5" @bind="reqMessage"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Attach screenshot (optional)</label>
+                        <InputFile OnChange="OnReqFile" />
+                        @if (!string.IsNullOrWhiteSpace(reqFileName))
+                        {
+                            <div class="small text-muted mt-1">Selected: @reqFileName</div>
+                        }
+                    </div>
+                    <button class="btn btn-warning fw-bold" @onclick="SendRequest">Send to Support</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string reqSubject = "";
+    private string reqMessage = "";
+    private string? reqFileName;
+    private byte[]? reqFileBytes;
+    private string? reqFileContentType;
+
+    private string? statusMsg;
+    private bool statusOk;
+
+    private async Task OnReqFile(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+        reqFileName = file.Name;
+        reqFileContentType = file.ContentType;
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(10_000_000).CopyToAsync(ms);
+        reqFileBytes = ms.ToArray();
+    }
+
+    private async Task SendRequest()
+    {
+        statusMsg = null;
+
+        if (string.IsNullOrWhiteSpace(reqSubject) || string.IsNullOrWhiteSpace(reqMessage))
+        {
+            statusOk = false;
+            statusMsg = "Subject and Message are required.";
+            return;
+        }
+
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var principal = auth.User;
+        var userEmail = principal.Identity?.IsAuthenticated == true ? (principal.Identity?.Name ?? "") : "";
+        try
+        {
+            await SupportRequest.SendAsync(userEmail, $"[QuoteTrack SOP Request] {reqSubject}", reqMessage, reqFileName, reqFileBytes, reqFileContentType);
+            statusOk = true;
+            statusMsg = "Sent successfully.";
+            reqSubject = "";
+            reqMessage = "";
+            reqFileName = null;
+            reqFileBytes = null;
+            reqFileContentType = null;
+        }
+        catch (Exception ex)
+        {
+            statusOk = false;
+            statusMsg = $"Failed to send: {ex.Message}";
+        }
+    }
+}

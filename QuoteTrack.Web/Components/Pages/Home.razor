@@ -1,0 +1,995 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@attribute [Authorize]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+
+@inject IQuoteService QuoteService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+
+<PageTitle>Command Center</PageTitle>
+
+<style>
+    .dash-title {
+        font-weight: 900;
+        letter-spacing: -0.5px;
+    }
+
+    .dash-subtitle {
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .kpi-card {
+        border: 1px solid #eee;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 10px 22px rgba(0,0,0,0.04);
+        padding: 16px;
+        height: 100%;
+    }
+
+    .kpi-label {
+        font-size: 12px;
+        font-weight: 800;
+        color: #777;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        margin-bottom: 6px;
+    }
+
+    .kpi-value {
+        font-weight: 900;
+        font-size: 1.3rem;
+        line-height: 1.1;
+    }
+
+    .kpi-sub {
+        margin-top: 6px;
+        font-size: 12px;
+        color: #777;
+    }
+
+    .chipbar {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .chip {
+        border: 1px solid #eee;
+        background: #fff;
+        color: #333;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 13px;
+        font-weight: 800;
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        cursor: pointer;
+        user-select: none;
+        transition: all 120ms ease-in-out;
+    }
+
+        .chip:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 18px rgba(0,0,0,0.06);
+        }
+
+        .chip.active {
+            border-color: #fca311;
+            box-shadow: 0 12px 22px rgba(252,163,17,0.22);
+        }
+
+        .chip .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 999px;
+            background: #bbb;
+        }
+
+        .chip.active .dot {
+            background: #fca311;
+        }
+
+    .panel {
+        border: 1px solid #eee;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 10px 22px rgba(0,0,0,0.04);
+        overflow: hidden;
+    }
+
+    .panel-header {
+        padding: 14px 16px;
+        border-bottom: 1px solid #eee;
+        background: #111;
+        color: #fff;
+        font-weight: 900;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .panel-body {
+        padding: 14px 16px;
+    }
+
+    .queue-row {
+        padding: 12px 0;
+        border-bottom: 1px solid #f2f2f2;
+    }
+
+        .queue-row:last-child {
+            border-bottom: 0;
+        }
+
+    .queue-client {
+        font-weight: 900;
+        color: #0b5ed7;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .queue-subject {
+        color: #666;
+        font-size: 0.88rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 520px;
+    }
+
+    .badge-soft {
+        border: 1px solid #eee;
+        background: #fafafa;
+        color: #333;
+        font-weight: 800;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 12px;
+    }
+
+    .risk-overdue {
+        border-color: #dc3545;
+        background: rgba(220,53,69,0.08);
+        color: #b02a37;
+    }
+
+    .risk-today {
+        border-color: #fd7e14;
+        background: rgba(253,126,20,0.10);
+        color: #a24a07;
+    }
+
+    .risk-high {
+        border-color: #6f42c1;
+        background: rgba(111,66,193,0.10);
+        color: #5a36a0;
+    }
+
+    .risk-normal {
+        border-color: #adb5bd;
+        background: rgba(173,181,189,0.15);
+        color: #495057;
+    }
+
+    .radar-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 0;
+        border-bottom: 1px solid #f3f3f3;
+    }
+
+        .radar-row:last-child {
+            border-bottom: 0;
+        }
+
+    .bar {
+        height: 10px;
+        border-radius: 999px;
+        background: #eee;
+        overflow: hidden;
+        flex: 1;
+    }
+
+        .bar > div {
+            height: 100%;
+            background: #fca311;
+            border-radius: 999px;
+        }
+
+    .muted {
+        color: #777;
+    }
+
+    .small-link {
+        color: #fff;
+        text-decoration: none;
+        font-weight: 800;
+        border: 1px solid rgba(255,255,255,0.25);
+        padding: 6px 10px;
+        border-radius: 10px;
+    }
+
+        .small-link:hover {
+            background: rgba(255,255,255,0.08);
+        }
+</style>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-end mb-3">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-speedometer2" style="font-size:32px; color:#0b5ed7;"></i>
+                <div>
+                    <div class="dash-title" style="font-size:34px;">Command Center</div>
+                    <div class="dash-subtitle">
+                        Live pipeline health • Follow-ups • Assignment • Quick actions
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-end">
+            <div class="small muted">Last refreshed: @lastRefreshedLocal.ToString("dd MMM yyyy, hh:mm tt")</div>
+            <button class="btn btn-outline-secondary btn-sm fw-bold mt-1" @onclick="Reload">Refresh</button>
+        </div>
+    </div>
+
+    <div class="panel mb-3">
+        <div class="panel-header">
+            <div>Filters</div>
+            <a class="small-link" href="javascript:void(0)" @onclick="ClearFilters">Clear</a>
+        </div>
+        <div class="panel-body">
+            <div class="row g-3 align-items-end">
+                @if (isAdmin)
+                {
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold text-muted">Owner (Salesperson)</label>
+                        <select class="form-select" @bind="selectedOwnerId" @bind:after="OnFilterChanged">
+                            <option value="">All</option>
+                            @foreach (var u in systemUsers.OrderBy(x => x.FullName))
+                            {
+                                <option value="@u.Id">@u.FullName</option>
+                            }
+                        </select>
+                    </div>
+                }
+                <div class="col-md-5">
+                    <label class="form-label small fw-bold text-muted">Search</label>
+                    <input class="form-control"
+                           @bind="searchText"
+                           @bind:event="oninput"
+                           @bind:after="OnFilterChanged"
+                           placeholder="Client / Ref / Subject / Sender" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-muted">View</label>
+                    <select class="form-select" @bind="recordView" @bind:after="OnFilterChanged">
+                        <option value="@DashboardView.All">All (Quotes + Leads)</option>
+                        <option value="@DashboardView.QuotesOnly">Quotes only</option>
+                        <option value="@DashboardView.LeadsOnly">Leads only</option>
+                    </select>
+                </div>
+            </div>
+
+            <hr />
+
+            <div class="chipbar">
+                <div class="chip @(activeChip == Chip.Overdue ? "active" : "")" @onclick="() => SetChip(Chip.Overdue)">
+                    <span class="dot"></span> Overdue
+                    <span class="badge-soft risk-overdue">@kpiOverdueCount</span>
+                </div>
+
+                <div class="chip @(activeChip == Chip.DueToday ? "active" : "")" @onclick="() => SetChip(Chip.DueToday)">
+                    <span class="dot"></span> Due Today
+                    <span class="badge-soft risk-today">@kpiDueTodayCount</span>
+                </div>
+
+                <div class="chip @(activeChip == Chip.HighValue ? "active" : "")" @onclick="() => SetChip(Chip.HighValue)">
+                    <span class="dot"></span> High Value
+                    <span class="badge-soft risk-high">@kpiHighValueCount</span>
+                </div>
+
+                <div class="chip @(activeChip == Chip.Unassigned ? "active" : "")" @onclick="() => SetChip(Chip.Unassigned)">
+                    <span class="dot"></span> Unassigned
+                    <span class="badge-soft">@kpiUnassignedCount</span>
+                </div>
+
+                <div class="chip @(activeChip == Chip.MissingFollowUp ? "active" : "")" @onclick="() => SetChip(Chip.MissingFollowUp)">
+                    <span class="dot"></span> Missing Follow-up
+                    <span class="badge-soft">@kpiMissingFollowUpCount</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="kpi-card">
+                <div class="kpi-label">Active Pipeline Value</div>
+                <div class="kpi-value">BHD @kpiPipelineValue.ToString("N3")</div>
+                <div class="kpi-sub">@kpiActiveQuotesCount active quotes</div>
+            </div>
+        </div>
+
+        <div class="col-md-2">
+            <div class="kpi-card">
+                <div class="kpi-label">Won This Month</div>
+                <div class="kpi-value">BHD @kpiWonThisMonth.ToString("N3")</div>
+                <div class="kpi-sub">@kpiWonCountThisMonth wins</div>
+            </div>
+        </div>
+
+        <div class="col-md-2">
+            <div class="kpi-card">
+                <div class="kpi-label">Overdue</div>
+                <div class="kpi-value">@kpiOverdueCount</div>
+                <div class="kpi-sub">BHD @kpiOverdueValue.ToString("N3") at risk</div>
+            </div>
+        </div>
+
+        <div class="col-md-2">
+            <div class="kpi-card">
+                <div class="kpi-label">Due Today</div>
+                <div class="kpi-value">@kpiDueTodayCount</div>
+                <div class="kpi-sub">BHD @kpiDueTodayValue.ToString("N3")</div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="kpi-card">
+                <div class="kpi-label">Lead Intake (7 days)</div>
+                <div class="kpi-value">@kpiNewLeads7d</div>
+                <div class="kpi-sub">@kpiUnassignedLeads unassigned leads</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-8">
+            <div class="panel">
+                <div class="panel-header">
+                    <div>Action Queue</div>
+                    <div class="small">Sorted: Overdue → Due Today → High Value → Newest</div>
+                </div>
+                <div class="panel-body">
+                    @if (!ActionQueue().Any())
+                    {
+                        <div class="text-muted">Nothing matches your current filters.</div>
+                    }
+                    else
+                    {
+                        @foreach (var item in ActionQueue().Take(30))
+                        {
+                            <div class="queue-row">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div style="min-width:0;">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge-soft @RiskClass(item)">@RiskLabel(item)</span>
+
+                                            <span class="queue-client" @onclick="() => OpenItem(item)">
+                                                @item.ClientLabel
+                                            </span>
+
+                                            <span class="badge-soft">@item.RecordLabel</span>
+                                            <span class="badge-soft">@item.StatusLabel</span>
+                                        </div>
+
+                                        <div class="queue-subject" title="@item.Subject">@item.Subject</div>
+
+                                        <div class="small muted mt-1">
+                                            <b>Owner:</b> @item.OwnerLabel •
+                                            <b>Due:</b> @(item.DueLocalText) •
+                                            <b>Value:</b> @(item.ValueText) •
+                                            <b>Last note:</b> @(item.LastNotePreview)
+                                        </div>
+                                    </div>
+
+                                    <div class="text-end" style="flex:0 0 auto;">
+                                        <button class="btn btn-sm btn-outline-primary fw-bold" @onclick="() => OpenItem(item)">
+                                            Review
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="panel mb-3">
+                <div class="panel-header">
+                    <div>Critical Alerts</div>
+                    <div class="small muted">Click to filter queue</div>
+                </div>
+                <div class="panel-body">
+                    <div class="radar-row">
+                        <div>
+                            <div class="fw-bold">Unassigned Leads</div>
+                            <div class="small muted">Needs assignment</div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger fw-bold" @onclick="() => SetChip(Chip.Unassigned)">
+                            @kpiUnassignedLeads
+                        </button>
+                    </div>
+
+                    <div class="radar-row">
+                        <div>
+                            <div class="fw-bold">Overdue Follow-ups</div>
+                            <div class="small muted">Past due date</div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger fw-bold" @onclick="() => SetChip(Chip.Overdue)">
+                            @kpiOverdueCount
+                        </button>
+                    </div>
+
+                    <div class="radar-row">
+                        <div>
+                            <div class="fw-bold">Missing Follow-up</div>
+                            <div class="small muted">No due date set</div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary fw-bold" @onclick="() => SetChip(Chip.MissingFollowUp)">
+                            @kpiMissingFollowUpCount
+                        </button>
+                    </div>
+
+                    <div class="radar-row">
+                        <div>
+                            <div class="fw-bold">TBD Value</div>
+                            <div class="small muted">Quote value = blank/0</div>
+                        </div>
+                        <span class="badge-soft">@kpiValueTbd</span>
+                    </div>
+
+                    <div class="radar-row">
+                        <div>
+                            <div class="fw-bold">Missing Client Link</div>
+                            <div class="small muted">Not verified</div>
+                        </div>
+                        <span class="badge-soft">@kpiMissingClientLink</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel mb-3">
+                <div class="panel-header">
+                    <div>Pipeline Radar</div>
+                    <div class="small muted">Status + Aging</div>
+                </div>
+                <div class="panel-body">
+                    @foreach (var row in StatusRadarRows())
+                    {
+                        <div class="radar-row">
+                            <div style="min-width:120px;">
+                                <div class="fw-bold">@row.Label</div>
+                                <div class="small muted">@row.Count items</div>
+                            </div>
+                            <div class="bar">
+                                <div style="width:@row.Percent%"></div>
+                            </div>
+                            <div class="fw-bold" style="min-width:70px; text-align:right;">
+                                @row.ValueText
+                            </div>
+                        </div>
+                    }
+
+                    <hr />
+
+                    @foreach (var row in AgingRadarRows())
+                    {
+                        <div class="radar-row">
+                            <div style="min-width:120px;">
+                                <div class="fw-bold">@row.Label</div>
+                                <div class="small muted">@row.Count items</div>
+                            </div>
+                            <div class="bar">
+                                <div style="width:@row.Percent%"></div>
+                            </div>
+                            <div class="fw-bold" style="min-width:70px; text-align:right;">
+                                @row.ValueText
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div>Recent Activity</div>
+                    <div class="small muted">Latest notes</div>
+                </div>
+                <div class="panel-body">
+                    @if (!RecentActivity().Any())
+                    {
+                        <div class="text-muted">No activity yet.</div>
+                    }
+                    else
+                    {
+                        @foreach (var ev in RecentActivity().Take(10))
+                        {
+                            <div class="queue-row">
+                                <div class="d-flex justify-content-between gap-2">
+                                    <div style="min-width:0;">
+                                        <div class="fw-bold text-truncate" title="@ev.Title">@ev.Title</div>
+                                        <div class="small muted text-truncate" title="@ev.Details">@ev.Details</div>
+                                        <div class="small muted">@ev.WhenLocal</div>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-primary fw-bold" @onclick="() => Nav.NavigateTo(ev.Link)">
+                                        Open
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private DateTime lastRefreshedLocal = DateTime.Now;
+
+    private string? currentUserId;
+    private bool isAdmin;
+
+    private List<ApplicationUser> systemUsers = new();
+    private List<Quote> allQuotes = new();
+
+    private string selectedOwnerId = "";
+    private string searchText = "";
+    private DashboardView recordView = DashboardView.All;
+    private Chip activeChip = Chip.None;
+
+    private decimal kpiPipelineValue;
+    private int kpiActiveQuotesCount;
+    private decimal kpiWonThisMonth;
+    private int kpiWonCountThisMonth;
+
+    private int kpiOverdueCount;
+    private decimal kpiOverdueValue;
+    private int kpiDueTodayCount;
+    private decimal kpiDueTodayValue;
+
+    private int kpiNewLeads7d;
+    private int kpiUnassignedLeads;
+
+    private int kpiUnassignedCount;
+    private int kpiHighValueCount;
+    private int kpiMissingFollowUpCount;
+
+    private int kpiValueTbd;
+    private int kpiMissingClientLink;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var principal = authState.User;
+
+        currentUserId = UserManager.GetUserId(principal);
+        isAdmin = principal.IsInRole("Admin");
+
+        systemUsers = await QuoteService.GetSystemUsersAsync();
+        allQuotes = await QuoteService.GetAllQuotesAsync(currentUserId, isAdmin);
+
+        ComputeKpis();
+        lastRefreshedLocal = DateTime.Now;
+        isLoading = false;
+    }
+
+    private async Task Reload()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        allQuotes = await QuoteService.GetAllQuotesAsync(currentUserId, isAdmin);
+        ComputeKpis();
+
+        lastRefreshedLocal = DateTime.Now;
+        isLoading = false;
+    }
+
+    private Task OnFilterChanged()
+    {
+        ComputeKpis();
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void ClearFilters()
+    {
+        selectedOwnerId = "";
+        searchText = "";
+        recordView = DashboardView.All;
+        activeChip = Chip.None;
+        ComputeKpis();
+    }
+
+    private void SetChip(Chip chip)
+    {
+        activeChip = (activeChip == chip) ? Chip.None : chip;
+    }
+
+    private IEnumerable<Quote> ScopedRecords()
+    {
+        IEnumerable<Quote> q = allQuotes;
+
+        if (recordView == DashboardView.QuotesOnly)
+            q = q.Where(x => x.RecordType != QuoteRecordType.Lead);
+        else if (recordView == DashboardView.LeadsOnly)
+            q = q.Where(x => x.RecordType == QuoteRecordType.Lead);
+
+        if (isAdmin && !string.IsNullOrWhiteSpace(selectedOwnerId))
+            q = q.Where(x => (x.OwnerId ?? "") == selectedOwnerId);
+
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            var s = searchText.Trim();
+
+            q = q.Where(x =>
+                (x.Client?.CompanyName ?? x.ClientName ?? x.SenderEmail ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                (x.QuoteReference ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                (x.Subject ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                (x.SenderEmail ?? "").Contains(s, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return q;
+    }
+
+    private void ComputeKpis()
+    {
+        var scoped = ScopedRecords().ToList();
+
+        var now = DateTime.UtcNow;
+        var todayLocal = DateTime.Now.Date;
+        var todayUtcStart = DateTime.SpecifyKind(todayLocal, DateTimeKind.Local).ToUniversalTime();
+        var todayUtcEnd = DateTime.SpecifyKind(todayLocal.AddDays(1), DateTimeKind.Local).ToUniversalTime();
+
+        var activeQuotes = scoped
+            .Where(q => q.RecordType != QuoteRecordType.Lead)
+            .Where(q => !IsClosedStatus(q.Status))
+            .ToList();
+
+        kpiActiveQuotesCount = activeQuotes.Count;
+        kpiPipelineValue = activeQuotes.Sum(q => q.QuoteValue ?? 0m);
+
+        var monthStartLocal = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        var monthStartUtc = DateTime.SpecifyKind(monthStartLocal, DateTimeKind.Local).ToUniversalTime();
+
+        var wonThisMonth = scoped
+            .Where(q => q.RecordType != QuoteRecordType.Lead)
+            .Where(q => q.Status.ToString().Contains("Won", StringComparison.OrdinalIgnoreCase))
+            .Where(q => q.UpdatedAt >= monthStartUtc)
+            .ToList();
+
+        kpiWonCountThisMonth = wonThisMonth.Count;
+        kpiWonThisMonth = wonThisMonth.Sum(q => q.QuoteValue ?? 0m);
+
+        var actionable = scoped.Where(q => !IsClosedStatus(q.Status)).ToList();
+
+        var overdue = actionable
+            .Where(q => q.NextFollowUpDate is DateTime nextDate && nextDate < todayUtcStart)
+            .ToList();
+
+        var dueToday = actionable
+            .Where(q => q.NextFollowUpDate is DateTime nextDate && nextDate >= todayUtcStart && nextDate < todayUtcEnd)
+            .ToList();
+
+        kpiOverdueCount = overdue.Count;
+        kpiOverdueValue = overdue.Where(q => q.RecordType != QuoteRecordType.Lead).Sum(q => q.QuoteValue ?? 0m);
+
+        kpiDueTodayCount = dueToday.Count;
+        kpiDueTodayValue = dueToday.Where(q => q.RecordType != QuoteRecordType.Lead).Sum(q => q.QuoteValue ?? 0m);
+
+        var sevenDaysAgoUtc = now.AddDays(-7);
+        var leads7d = scoped
+            .Where(q => q.RecordType == QuoteRecordType.Lead)
+            .Where(q => q.CreatedAt >= sevenDaysAgoUtc)
+            .ToList();
+
+        kpiNewLeads7d = leads7d.Count;
+        kpiUnassignedLeads = leads7d.Count(q => string.IsNullOrWhiteSpace(q.OwnerId));
+
+        kpiUnassignedCount = actionable.Count(q => string.IsNullOrWhiteSpace(q.OwnerId));
+        kpiHighValueCount = activeQuotes.Count(q => (q.QuoteValue ?? 0m) >= 2000m);
+        kpiMissingFollowUpCount = actionable.Count(q => !q.NextFollowUpDate.HasValue);
+        kpiValueTbd = activeQuotes.Count(q => !q.QuoteValue.HasValue || q.QuoteValue.Value <= 0);
+        kpiMissingClientLink = activeQuotes.Count(q => !q.ClientId.HasValue);
+    }
+
+    private IEnumerable<QueueItem> BaseFilteredItems()
+    {
+        var q = ScopedRecords();
+
+        var items = q.Where(x => !IsClosedStatus(x.Status)).Select(MapQueueItem).ToList();
+
+        if (activeChip != Chip.None)
+        {
+            var todayLocal = DateTime.Now.Date;
+            var todayUtcStart = DateTime.SpecifyKind(todayLocal, DateTimeKind.Local).ToUniversalTime();
+            var todayUtcEnd = DateTime.SpecifyKind(todayLocal.AddDays(1), DateTimeKind.Local).ToUniversalTime();
+
+            items = activeChip switch
+            {
+                Chip.Overdue => items.Where(i => i.DueUtc.HasValue && i.DueUtc.Value < todayUtcStart).ToList(),
+                Chip.DueToday => items.Where(i => i.DueUtc.HasValue && i.DueUtc.Value >= todayUtcStart && i.DueUtc.Value < todayUtcEnd).ToList(),
+                Chip.HighValue => items.Where(i => i.RecordType == QuoteRecordType.OutgoingQuote && (i.Value ?? 0m) >= 2000m).ToList(),
+                Chip.Unassigned => items.Where(i => string.IsNullOrWhiteSpace(i.OwnerId)).ToList(),
+                Chip.MissingFollowUp => items.Where(i => !i.DueUtc.HasValue).ToList(),
+                _ => items
+            };
+        }
+
+        return items;
+    }
+
+    private IEnumerable<QueueItem> ActionQueue()
+    {
+        var todayLocal = DateTime.Now.Date;
+        var todayUtcStart = DateTime.SpecifyKind(todayLocal, DateTimeKind.Local).ToUniversalTime();
+        var todayUtcEnd = DateTime.SpecifyKind(todayLocal.AddDays(1), DateTimeKind.Local).ToUniversalTime();
+
+        var items = BaseFilteredItems();
+
+        return items
+            .OrderByDescending(i => i.DueUtc.HasValue && i.DueUtc.Value < todayUtcStart)
+            .ThenByDescending(i => i.DueUtc.HasValue && i.DueUtc.Value >= todayUtcStart && i.DueUtc.Value < todayUtcEnd)
+            .ThenByDescending(i => (i.Value ?? 0m) >= 2000m)
+            .ThenByDescending(i => i.CreatedAtUtc);
+    }
+
+    private IEnumerable<ActivityEvent> RecentActivity()
+    {
+        var events = new List<ActivityEvent>();
+
+        foreach (var q in ScopedRecords())
+        {
+            if (q.FollowUps == null) continue;
+
+            foreach (var f in q.FollowUps)
+            {
+                var link = q.RecordType == QuoteRecordType.Lead ? "/lead/" + q.Id : "/quote/" + q.Id;
+                var title = (q.Client?.CompanyName ?? q.ClientName ?? q.SenderEmail ?? "Record") + " • " + (q.RecordType == QuoteRecordType.Lead ? "Lead" : "Quote");
+
+                events.Add(new ActivityEvent
+                {
+                    WhenUtc = f.CreatedAt,
+                    WhenLocal = f.CreatedAt.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt"),
+                    Title = title,
+                    Details = f.Notes ?? "",
+                    Link = link
+                });
+            }
+        }
+
+        return events.OrderByDescending(e => e.WhenUtc);
+    }
+
+    private IEnumerable<RadarRow> StatusRadarRows()
+    {
+        var openQuotes = ScopedRecords()
+            .Where(q => q.RecordType != QuoteRecordType.Lead)
+            .Where(q => !IsClosedStatus(q.Status))
+            .ToList();
+
+        if (openQuotes.Count == 0)
+            return new List<RadarRow>();
+
+        decimal total = openQuotes.Sum(x => x.QuoteValue ?? 0m);
+        if (total <= 0) total = 1;
+
+        var groups = openQuotes
+            .GroupBy(x => x.Status.ToString())
+            .Select(g =>
+            {
+                var v = g.Sum(x => x.QuoteValue ?? 0m);
+                var pct = Math.Round((double)(v / total) * 100.0, 0);
+                return new RadarRow { Label = g.Key, Count = g.Count(), Percent = pct, ValueText = "BHD " + v.ToString("N0") };
+            })
+            .OrderByDescending(x => x.Count)
+            .Take(6)
+            .ToList();
+
+        return groups;
+    }
+
+    private IEnumerable<RadarRow> AgingRadarRows()
+    {
+        var openQuotes = ScopedRecords()
+            .Where(q => q.RecordType != QuoteRecordType.Lead)
+            .Where(q => !IsClosedStatus(q.Status))
+            .ToList();
+
+        if (openQuotes.Count == 0)
+            return new List<RadarRow>();
+
+        decimal total = openQuotes.Sum(x => x.QuoteValue ?? 0m);
+        if (total <= 0) total = 1;
+
+        DateTime nowUtc = DateTime.UtcNow;
+
+        var buckets = new[]
+        {
+            new { Label = "0–3 days", Min = 0, Max = 3 },
+            new { Label = "4–7 days", Min = 4, Max = 7 },
+            new { Label = "8–14 days", Min = 8, Max = 14 },
+            new { Label = "15–30 days", Min = 15, Max = 30 },
+            new { Label = "30+ days", Min = 31, Max = 9999 }
+        };
+
+        var rows = new List<RadarRow>();
+
+        foreach (var b in buckets)
+        {
+            var inBucket = openQuotes.Where(q =>
+            {
+                var age = (nowUtc - q.CreatedAt).TotalDays;
+                return age >= b.Min && age <= b.Max;
+            }).ToList();
+
+            var v = inBucket.Sum(x => x.QuoteValue ?? 0m);
+            var pct = Math.Round((double)(v / total) * 100.0, 0);
+
+            rows.Add(new RadarRow
+            {
+                Label = b.Label,
+                Count = inBucket.Count,
+                Percent = pct,
+                ValueText = "BHD " + v.ToString("N0")
+            });
+        }
+
+        return rows;
+    }
+
+    private void OpenItem(QueueItem item)
+    {
+        var url = item.RecordType == QuoteRecordType.Lead ? "/lead/" + item.Id : "/quote/" + item.Id;
+        Nav.NavigateTo(url);
+    }
+
+    private string RiskLabel(QueueItem item)
+    {
+        var todayLocal = DateTime.Now.Date;
+        var todayUtcStart = DateTime.SpecifyKind(todayLocal, DateTimeKind.Local).ToUniversalTime();
+        var todayUtcEnd = DateTime.SpecifyKind(todayLocal.AddDays(1), DateTimeKind.Local).ToUniversalTime();
+
+        if (item.DueUtc.HasValue && item.DueUtc.Value < todayUtcStart) return "Overdue";
+        if (item.DueUtc.HasValue && item.DueUtc.Value >= todayUtcStart && item.DueUtc.Value < todayUtcEnd) return "Today";
+        if ((item.Value ?? 0m) >= 2000m) return "High";
+        return "Normal";
+    }
+
+    private string RiskClass(QueueItem item)
+    {
+        return RiskLabel(item) switch
+        {
+            "Overdue" => "risk-overdue",
+            "Today" => "risk-today",
+            "High" => "risk-high",
+            _ => "risk-normal"
+        };
+    }
+
+    private QueueItem MapQueueItem(Quote q)
+    {
+        string recordLabel = q.RecordType == QuoteRecordType.Lead ? "Lead" : "Quote";
+        string statusLabel = q.Status.ToString();
+
+        string ownerLabel = q.Owner?.FullName ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(ownerLabel))
+        {
+            if (!string.IsNullOrWhiteSpace(q.OwnerId))
+                ownerLabel = systemUsers.FirstOrDefault(u => u.Id == q.OwnerId)?.FullName ?? "Assigned";
+            else
+                ownerLabel = "Unassigned";
+        }
+
+        string clientLabel = q.Client?.CompanyName ?? q.ClientName ?? q.SenderEmail ?? "Unknown";
+
+        string valueText = q.RecordType == QuoteRecordType.Lead
+            ? "—"
+            : (q.QuoteValue.HasValue && q.QuoteValue.Value > 0 ? $"{q.Currency} {q.QuoteValue.Value:N2}" : "TBD");
+
+        string dueText = q.NextFollowUpDate.HasValue
+            ? q.NextFollowUpDate.Value.ToLocalTime().ToString("dd MMM yyyy")
+            : "Not set";
+
+        string lastNote = "—";
+        if (q.FollowUps != null && q.FollowUps.Count > 0)
+        {
+            var ln = q.FollowUps.OrderByDescending(x => x.CreatedAt).First();
+            lastNote = (ln.Notes ?? "").Trim();
+            if (lastNote.Length > 60) lastNote = lastNote.Substring(0, 60) + "...";
+        }
+
+        return new QueueItem
+        {
+            Id = q.Id,
+            RecordType = q.RecordType,
+            RecordLabel = recordLabel,
+            StatusLabel = statusLabel,
+            OwnerId = q.OwnerId ?? "",
+            OwnerLabel = ownerLabel,
+            ClientLabel = clientLabel,
+            Subject = q.Subject ?? "",
+            DueUtc = q.NextFollowUpDate,
+            DueLocalText = dueText,
+            Value = q.QuoteValue,
+            ValueText = valueText,
+            CreatedAtUtc = q.CreatedAt,
+            LastNotePreview = lastNote
+        };
+    }
+
+    private bool IsClosedStatus(QuoteStatus status)
+    {
+        var s = status.ToString();
+        if (s.Contains("Won", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.Contains("Lost", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.Contains("Cancelled", StringComparison.OrdinalIgnoreCase)) return true;
+        if (s.Contains("Closed", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private enum DashboardView { All, QuotesOnly, LeadsOnly }
+    private enum Chip { None, Overdue, DueToday, HighValue, Unassigned, MissingFollowUp }
+
+    private class QueueItem
+    {
+        public Guid Id { get; set; }
+        public QuoteRecordType RecordType { get; set; }
+        public string RecordLabel { get; set; } = "";
+        public string StatusLabel { get; set; } = "";
+        public string OwnerId { get; set; } = "";
+        public string OwnerLabel { get; set; } = "";
+        public string ClientLabel { get; set; } = "";
+        public string Subject { get; set; } = "";
+        public DateTime? DueUtc { get; set; }
+        public string DueLocalText { get; set; } = "";
+        public decimal? Value { get; set; }
+        public string ValueText { get; set; } = "";
+        public DateTime CreatedAtUtc { get; set; }
+        public string LastNotePreview { get; set; } = "";
+    }
+
+    private class RadarRow
+    {
+        public string Label { get; set; } = "";
+        public int Count { get; set; }
+        public double Percent { get; set; }
+        public string ValueText { get; set; } = "";
+    }
+
+    private class ActivityEvent
+    {
+        public DateTime WhenUtc { get; set; }
+        public string WhenLocal { get; set; } = "";
+        public string Title { get; set; } = "";
+        public string Details { get; set; } = "";
+        public string Link { get; set; } = "";
+    }
+}

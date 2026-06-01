@@ -1,0 +1,127 @@
+﻿@page "/admin/users/{UserId}"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Domain.Entities
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavManager
+
+<PageTitle>User Details</PageTitle>
+
+@if (user == null)
+{
+    <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
+}
+else
+{
+    <div class="container-fluid mb-5" style="max-width: 900px;">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <a href="/admin/users" class="btn btn-sm btn-outline-secondary mb-2"><i class="bi bi-arrow-left me-1"></i> Back to Roster</a>
+                <h2 class="mb-0"><i class="bi bi-person-lines-fill text-primary me-2"></i>User Profile</h2>
+            </div>
+            <div>
+                <span class="badge @(user.IsActive ? "bg-success" : "bg-danger") fs-6 py-2 px-3 shadow-sm">
+                    Account: @(user.IsActive ? "Active" : "Inactive")
+                </span>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 mb-4 text-center p-4">
+                    <div class="bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center shadow-sm mx-auto mb-3" style="width: 100px; height: 100px; font-size: 40px; font-weight: bold;">
+                        @user.FullName.Substring(0, 1).ToUpper()
+                    </div>
+                    <h4 class="fw-bold mb-0">@user.FullName</h4>
+                    <p class="text-muted mb-3">@user.Email</p>
+
+                    <div class="d-flex flex-wrap justify-content-center gap-1 mb-3">
+                        @foreach (var role in userRoles)
+                        {
+                            <span class="badge bg-dark">@role</span>
+                        }
+                        @if (!userRoles.Any())
+                        {
+                            <span class="badge bg-secondary">Standard Rep</span>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white border-bottom fw-bold py-3">Detailed Information</div>
+                    <div class="card-body p-4">
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label text-muted small fw-bold">Full Name</label>
+                                <input type="text" class="form-control" @bind="user.FullName" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label text-muted small fw-bold">Email Address</label>
+                                <input type="email" class="form-control" @bind="user.Email" disabled />
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label text-muted small fw-bold">Contact Number</label>
+                                <input type="text" class="form-control" @bind="user.PhoneNumber" placeholder="+973 ..." />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label text-muted small fw-bold">Work Schedule (Shift)</label>
+                                <select class="form-select">
+                                    <option value="SunThu">Sunday to Thursday</option>
+                                    <option value="SatThu">Saturday to Thursday</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <hr class="my-4" />
+
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-warning fw-bold shadow-sm" @onclick="SaveChanges"><i class="bi bi-save-fill me-1"></i> Save Updates</button>
+                        </div>
+                        
+                        @if (saveSuccess)
+                        {
+                            <div class="alert alert-success mt-3 mb-0 py-2 small fw-bold"><i class="bi bi-check-circle-fill me-1"></i> Profile updated successfully.</div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string UserId { get; set; } = string.Empty;
+
+    private ApplicationUser? user;
+    private IList<string> userRoles = new List<string>();
+    private bool saveSuccess = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        user = await UserManager.FindByIdAsync(UserId);
+        if (user != null)
+        {
+            userRoles = await UserManager.GetRolesAsync(user);
+        }
+    }
+
+    private async Task SaveChanges()
+    {
+        if (user != null)
+        {
+            await UserManager.UpdateAsync(user);
+            saveSuccess = true;
+            await Task.Delay(3000);
+            saveSuccess = false;
+        }
+    }
+}

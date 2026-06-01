@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="QuoteTrack.Application/QuoteTrack.Application.csproj" />
+  <Project Path="QuoteTrack.Domain/QuoteTrack.Domain.csproj" />
+  <Project Path="QuoteTrack.Infrastructure/QuoteTrack.Infrastructure.csproj" />
+  <Project Path="QuoteTrack.Web/QuoteTrack.Web.csproj" />
+  <Project Path="QuoteTrack.Worker/QuoteTrack.Worker.csproj" />
+</Solution>

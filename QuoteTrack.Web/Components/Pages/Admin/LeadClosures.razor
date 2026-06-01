@@ -1,0 +1,179 @@
+﻿@page "/admin/lead-closures"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,DeptHead,DepartmentHead,Head,Manager")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+
+@inject IQuoteService QuoteService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+
+<PageTitle>Pending Lead Closures</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-1"><i class="bi bi-check2-square text-dark me-2"></i>Pending Lead Closures</h2>
+        <div class="text-muted small">Leads submitted by reps and waiting for admin/head review.</div>
+    </div>
+    <button class="btn btn-outline-secondary" @onclick="LoadData">
+        Refresh
+    </button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(uiMessage))
+{
+    <div class="alert @(uiOk ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm">
+        @uiMessage
+        <button type="button" class="btn-close" @onclick="() => uiMessage = string.Empty"></button>
+    </div>
+}
+
+@if (isLoading)
+{
+    <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
+}
+else if (!pendingLeads.Any())
+{
+    <div class="card shadow-sm border-0 text-center py-5">
+        <div class="card-body">
+            <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
+            <h4 class="mt-3 fw-bold text-dark">No Pending Lead Closures</h4>
+            <p class="text-muted">Nothing is waiting for admin closure right now.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="ps-3">Client / Ref</th>
+                            <th>Representative</th>
+                            <th>Submitted At</th>
+                            <th>Attached Quote Ref</th>
+                            <th>Rep Notes</th>
+                            <th class="text-end pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var lead in pendingLeads)
+                        {
+                            <tr>
+                                <td class="ps-3">
+                                    <div class="fw-bold text-primary">
+                                        @(lead.Client?.CompanyName ?? lead.ClientName ?? "Unknown Client")
+                                    </div>
+                                    <div class="small text-muted font-monospace">@((string.IsNullOrWhiteSpace(lead.QuoteReference)) ? "—" : lead.QuoteReference)</div>
+                                    <div class="small text-muted text-truncate" style="max-width: 260px;" title="@lead.Subject">@lead.Subject</div>
+                                </td>
+
+                                <td>
+                                    @(lead.Owner?.FullName ?? "Unassigned")
+                                </td>
+
+                                <td>
+                                    @(lead.RepCompletedAt.HasValue? lead.RepCompletedAt.Value.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt") : "-")
+                                </td>
+
+                                <td>
+                                    <span class="fw-bold">@(string.IsNullOrWhiteSpace(lead.RepAttachedQuoteReference) ? "-" : lead.RepAttachedQuoteReference)</span>
+                                </td>
+
+                                <td>
+                                    <div class="small text-wrap" style="max-width: 280px;">
+                                        @(string.IsNullOrWhiteSpace(lead.RepCompletionNotes) ? "-" : lead.RepCompletionNotes)
+                                    </div>
+                                </td>
+
+                                <td class="text-end pe-3">
+                                    <div class="d-flex gap-2 justify-content-end">
+                                        <button class="btn btn-sm btn-outline-primary fw-bold"
+                                                @onclick="() => OpenLead(lead.Id)">
+                                            Open
+                                        </button>
+
+                                        <button class="btn btn-sm btn-success fw-bold"
+                                                @onclick="() => CloseLeadNow(lead.Id)">
+                                            Close Lead
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool uiOk = true;
+    private string uiMessage = "";
+    private string? currentUserId;
+
+    private List<Quote> pendingLeads = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        currentUserId = UserManager.GetUserId(auth.User);
+
+        await LoadData();
+        isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+
+        var all = await QuoteService.GetAllQuotesAsync(null, true);
+
+        pendingLeads = all
+            .Where(q => q.RecordType == QuoteRecordType.Lead)
+            .Where(q => !q.IsDeleteRequested)
+            .Where(q => q.Status == QuoteStatus.LeadRepCompleted)
+            .OrderByDescending(q => q.RepCompletedAt ?? q.UpdatedAt)
+            .ToList();
+
+        isLoading = false;
+    }
+
+    private void OpenLead(Guid id)
+    {
+        Nav.NavigateTo($"/lead/{id}");
+    }
+
+    private async Task CloseLeadNow(Guid id)
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId))
+        {
+            uiOk = false;
+            uiMessage = "Admin session missing.";
+            return;
+        }
+
+        try
+        {
+            await QuoteService.CloseLeadAsAdminAsync(id, currentUserId, "Closed from pending lead closure queue.");
+            uiOk = true;
+            uiMessage = "Lead closed successfully.";
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            uiOk = false;
+            uiMessage = "Close failed: " + ex.Message;
+        }
+    }
+}

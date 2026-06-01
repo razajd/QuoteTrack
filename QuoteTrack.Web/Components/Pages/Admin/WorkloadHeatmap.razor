@@ -1,0 +1,144 @@
+﻿@page "/admin/management/workload"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@inject IAppDbContext DbContext
+
+<PageTitle>Shift Workload Heatmap</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-calendar-week text-info me-2"></i>Shift Workload Heatmap</h2>
+    <a href="/admin/management" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i> Back to Overview</a>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5">
+        <div class="spinner-border text-info" role="status"></div>
+        <p class="mt-2 text-muted">Analyzing shift data...</p>
+    </div>
+}
+else
+{
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-bottom fw-bold py-3">
+            <i class="bi bi-activity text-primary me-2"></i> 7-Day Rolling Activity Grid
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered mb-0 text-center align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start ps-3" style="width: 200px;">Team Member</th>
+                            @foreach (var day in last7Days)
+                            {
+                                <th>
+                                    <div class="fw-bold">@day.ToString("ddd")</div>
+                                    <div class="text-muted small">@day.ToString("MMM dd")</div>
+                                </th>
+                            }
+                            <th class="fw-bold bg-light">7-Day Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var userStat in heatmapData)
+                        {
+                            <tr>
+                                <td class="text-start ps-3 fw-bold">@userStat.FullName</td>
+                                @foreach (var day in last7Days)
+                                {
+                                    var count = userStat.ActivityByDate.ContainsKey(day.Date) ? userStat.ActivityByDate[day.Date] : 0;
+                                    <td class="@GetHeatmapColor(count)">
+                                        @(count > 0 ? count.ToString() : "-")
+                                    </td>
+                                }
+                                <td class="fw-bold bg-light">@userStat.TotalActions</td>
+                            </tr>
+                        }
+                        @if (!heatmapData.Any())
+                        {
+                            <tr><td colspan="9" class="text-muted py-4">No activity logged in the last 7 days.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer bg-white text-muted small py-3">
+            <i class="bi bi-info-circle me-1"></i> Darker blue indicates higher activity volume (quotes updated, leads assigned, etc.). Blank cells mean zero recorded actions on that day.
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private List<DateTime> last7Days = new();
+
+    private class UserHeatmap
+    {
+        public string FullName { get; set; } = string.Empty;
+        public Dictionary<DateTime, int> ActivityByDate { get; set; } = new();
+        public int TotalActions => ActivityByDate.Values.Sum();
+    }
+
+    private List<UserHeatmap> heatmapData = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Generate the last 7 days (including today)
+        var today = DateTime.UtcNow.Date;
+        for (int i = 6; i >= 0; i--)
+        {
+            last7Days.Add(today.AddDays(-i));
+        }
+
+        var startDate = last7Days.First();
+
+        // Fetch all logs from the last 7 days
+        var logs = await DbContext.ActivityLogs
+            .Include(a => a.User)
+            .Where(a => a.Timestamp >= startDate)
+            .ToListAsync();
+
+        // Group by User
+        var groupedByUser = logs
+            .Where(l => l.User != null)
+            .GroupBy(l => l.User!);
+
+        foreach (var group in groupedByUser)
+        {
+            var user = group.Key;
+            var userLogs = group.ToList();
+
+            var heatmap = new UserHeatmap
+            {
+                FullName = user.FullName
+            };
+
+            // Count activities per day for this user
+            foreach (var day in last7Days)
+            {
+                var count = userLogs.Count(l => l.Timestamp.Date == day.Date);
+                heatmap.ActivityByDate[day.Date] = count;
+            }
+
+            heatmapData.Add(heatmap);
+        }
+
+        // Sort by total actions
+        heatmapData = heatmapData.OrderByDescending(h => h.TotalActions).ToList();
+
+        isLoading = false;
+    }
+
+    // Dynamic CSS generator for the heatmap cells
+    private string GetHeatmapColor(int count)
+    {
+        if (count == 0) return "text-muted opacity-50";
+        if (count < 5) return "bg-primary bg-opacity-10 text-primary fw-bold";
+        if (count < 15) return "bg-primary bg-opacity-25 text-dark fw-bold";
+        return "bg-primary text-white fw-bold shadow-sm"; // Very active
+    }
+}

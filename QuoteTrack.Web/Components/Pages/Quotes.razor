@@ -1,0 +1,303 @@
+﻿@page "/quotes"
+@rendermode InteractiveServer
+@attribute [Authorize]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+
+@inject IQuoteService QuoteService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+
+<PageTitle>Quotes</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="mb-1"><i class="bi bi-files text-primary me-2"></i>Quotes</h2>
+        <div class="text-muted small">Default: newest first. Click any column title to sort.</div>
+    </div>
+    <div>
+        <span class="badge bg-primary rounded-pill fs-6 px-3 py-2 shadow-sm">@FilteredQuotes().Count()</span>
+    </div>
+</div>
+
+@if (isAdmin)
+{
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label small fw-bold text-muted">Filter by Salesperson (Owner)</label>
+                    <select class="form-select" @bind="selectedOwnerId">
+                        <option value="">All Salespersons</option>
+                        @foreach (var u in systemUsers.OrderBy(x => x.FullName))
+                        {
+                            <option value="@u.Id">@u.FullName</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold text-muted">Search (Client / Ref / Subject)</label>
+                    <input class="form-control" @bind="searchText" placeholder="Type to filter..." />
+                </div>
+
+                <div class="col-md-2">
+                    <button class="btn btn-outline-secondary w-100 fw-bold" @onclick="ClearFilters">
+                        Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (isLoading)
+{
+    <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
+}
+else if (!FilteredQuotes().Any())
+{
+    <div class="alert alert-info">No quotes found for the current filter.</div>
+}
+else
+{
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="ps-3" style="min-width:240px;">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Client)">
+                                    Client @SortIcon(QuoteSortColumn.Client)
+                                </a>
+                            </th>
+
+                            <th style="min-width:160px;">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Reference)">
+                                    Reference @SortIcon(QuoteSortColumn.Reference)
+                                </a>
+                            </th>
+
+                            <th style="min-width:140px;">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Value)">
+                                    Value @SortIcon(QuoteSortColumn.Value)
+                                </a>
+                            </th>
+
+                            <th style="min-width:120px;">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Status)">
+                                    Status @SortIcon(QuoteSortColumn.Status)
+                                </a>
+                            </th>
+
+                            @if (isAdmin)
+                            {
+                                <th style="min-width:180px;">
+                                    <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Owner)">
+                                        Owner @SortIcon(QuoteSortColumn.Owner)
+                                    </a>
+                                </th>
+                            }
+
+                            <th style="min-width:160px;">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.NextDue)">
+                                    Next Due @SortIcon(QuoteSortColumn.NextDue)
+                                </a>
+                            </th>
+
+                            <th style="min-width:160px;">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Created)">
+                                    Created @SortIcon(QuoteSortColumn.Created)
+                                </a>
+                            </th>
+
+                            <th class="text-end pe-3" style="min-width:110px;">Action</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        @foreach (var q in SortedQuotes())
+                        {
+                            <tr>
+                                <td class="ps-3">
+                                    <div class="fw-bold text-primary">
+                                        @(q.Client?.CompanyName ?? q.ClientName ?? q.SenderEmail ?? "Unknown")
+                                    </div>
+                                    <div class="small text-muted text-truncate" style="max-width:260px;" title="@q.Subject">@q.Subject</div>
+                                </td>
+
+                                <td>
+                                    <span class="font-monospace small">@((string.IsNullOrWhiteSpace(q.QuoteReference)) ? "—" : q.QuoteReference)</span>
+                                </td>
+
+                                <td>
+                                    <span class="fw-bold text-success">
+                                        @(q.QuoteValue.HasValue && q.QuoteValue.Value > 0 ? $"{q.Currency} {q.QuoteValue.Value:N2}" : "TBD")
+                                    </span>
+                                </td>
+
+                                <td>
+                                    <span class="badge border border-secondary text-dark bg-light">@q.Status.ToString()</span>
+                                </td>
+
+                                @if (isAdmin)
+                                {
+                                    <td>
+                                        <span class="small text-muted">@((q.Owner != null) ? q.Owner.FullName : "—")</span>
+                                    </td>
+                                }
+
+                                <td>
+                                    @if (q.NextFollowUpDate.HasValue)
+                                    {
+                                        <span class="small text-muted">@q.NextFollowUpDate.Value.ToLocalTime().ToString("dd MMM yyyy")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small fst-italic">—</span>
+                                    }
+                                </td>
+
+                                <td>
+                                    <span class="small text-muted">@q.CreatedAt.ToLocalTime().ToString("dd MMM yyyy")</span>
+                                </td>
+
+                                <td class="text-end pe-3">
+                                    <button class="btn btn-sm btn-outline-primary fw-bold shadow-sm" @onclick="() => OpenQuote(q.Id)">
+                                        Open <i class="bi bi-arrow-right-short"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+
+    private List<Quote> quotes = new();
+    private List<ApplicationUser> systemUsers = new();
+
+    private string? currentUserId;
+    private bool isAdmin;
+
+    // filters
+    private string selectedOwnerId = "";
+    private string searchText = "";
+
+    // sorting
+    private QuoteSortColumn sortColumn = QuoteSortColumn.Created;
+    private bool sortAsc = false; // newest first
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var principal = authState.User;
+
+        currentUserId = UserManager.GetUserId(principal);
+        isAdmin = principal.IsInRole("Admin");
+
+        systemUsers = await QuoteService.GetSystemUsersAsync();
+
+        // Get all for admin, otherwise just mine
+        quotes = await QuoteService.GetAllQuotesAsync(currentUserId, isAdmin);
+
+        // Quotes page should show outgoing quotes only
+        quotes = quotes.Where(q => q.RecordType != QuoteRecordType.Lead).ToList();
+
+        isLoading = false;
+    }
+
+    private void OpenQuote(Guid id)
+    {
+        Nav.NavigateTo("/quote/" + id);
+    }
+
+    private void ClearFilters()
+    {
+        selectedOwnerId = "";
+        searchText = "";
+    }
+
+    private IEnumerable<Quote> FilteredQuotes()
+    {
+        IEnumerable<Quote> q = quotes;
+
+        if (isAdmin && !string.IsNullOrWhiteSpace(selectedOwnerId))
+        {
+            q = q.Where(x => (x.OwnerId ?? "") == selectedOwnerId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            var s = searchText.Trim();
+            q = q.Where(x =>
+                (x.Client?.CompanyName ?? x.ClientName ?? x.SenderEmail ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                (x.QuoteReference ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                (x.Subject ?? "").Contains(s, StringComparison.OrdinalIgnoreCase)
+            );
+        }
+
+        return q;
+    }
+
+    private IEnumerable<Quote> SortedQuotes()
+    {
+        var baseSet = FilteredQuotes();
+
+        Func<Quote, object?> key = sortColumn switch
+        {
+            QuoteSortColumn.Client => (x) => (x.Client?.CompanyName ?? x.ClientName ?? x.SenderEmail ?? ""),
+            QuoteSortColumn.Reference => (x) => x.QuoteReference ?? "",
+            QuoteSortColumn.Value => (x) => x.QuoteValue ?? 0m,
+            QuoteSortColumn.Status => (x) => x.Status.ToString(),
+            QuoteSortColumn.Owner => (x) => (x.Owner?.FullName ?? ""),
+            QuoteSortColumn.NextDue => (x) => x.NextFollowUpDate ?? DateTime.MaxValue,
+            _ => (x) => x.CreatedAt
+        };
+
+        return sortAsc ? baseSet.OrderBy(key) : baseSet.OrderByDescending(key);
+    }
+
+    private void SetSort(QuoteSortColumn col)
+    {
+        if (sortColumn == col)
+        {
+            sortAsc = !sortAsc;
+        }
+        else
+        {
+            sortColumn = col;
+            sortAsc = col is QuoteSortColumn.Created or QuoteSortColumn.NextDue ? false : true;
+        }
+    }
+
+    private string SortIcon(QuoteSortColumn col)
+    {
+        if (sortColumn != col) return "";
+        return sortAsc ? " ▲" : " ▼";
+    }
+
+    private enum QuoteSortColumn
+    {
+        Client,
+        Reference,
+        Value,
+        Status,
+        Owner,
+        NextDue,
+        Created
+    }
+}

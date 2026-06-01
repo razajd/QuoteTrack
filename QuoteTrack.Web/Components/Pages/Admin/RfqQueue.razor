@@ -1,0 +1,118 @@
+﻿@page "/admin/rfqs"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+@using QuoteTrack.Infrastructure.Data
+@using Microsoft.AspNetCore.Identity
+@inject AppDbContext DbContext
+@inject UserManager<ApplicationUser> UserManager
+
+<PageTitle>RFQ Triage Queue</PageTitle>
+
+<div class="container-fluid py-4">
+    <h3 class="fw-bold mb-4"><i class="bi bi-inbox-fill text-primary me-2"></i>Incoming RFQ Queue</h3>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">Received</th>
+                        <th>Client</th>
+                        <th>Subject</th>
+                        <th>Status</th>
+                        <th>Assign To</th>
+                        <th class="text-end pe-4">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!rfqs.Any())
+                    {
+                        <tr><td colspan="6" class="text-center py-4 text-muted">No pending RFQs in the queue.</td></tr>
+                    }
+                    @foreach (var rfq in rfqs)
+                    {
+                        <tr>
+                            <td class="ps-4 text-muted small">@rfq.ReceivedAt.ToString("MMM dd, HH:mm")</td>
+                            <td class="fw-bold">@rfq.ClientEmail</td>
+                            <td>@rfq.Subject</td>
+                            <td>
+                                @if (rfq.Status == RfqStatus.Unassigned)
+                                {
+                                    <span class="badge bg-danger">Unassigned</span>
+                                }
+                                else
+                                {
+
+                                    <span class="badge bg-success">Assigned</span>
+                                }
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" @bind="selectedUserIds[rfq.Id]">
+                                    <option value="">-- Select Team Member --</option>
+                                    @foreach (var user in salesTeam)
+                                    {
+                                        <option value="@user.Id">@user.FullName</option>
+                                    }
+                                </select>
+                            </td>
+                            <td class="text-end pe-4">
+                                <button class="btn btn-sm btn-primary" @onclick="() => AssignRfq(rfq.Id)">Assign</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Rfq> rfqs = new();
+    private List<ApplicationUser> salesTeam = new();
+    private Dictionary<Guid, string> selectedUserIds = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        // Load Unassigned and Recently Assigned RFQs
+        rfqs = await DbContext.Rfqs
+            .Include(r => r.AssignedUser)
+            .Where(r => r.Status == RfqStatus.Unassigned || r.Status == RfqStatus.Assigned)
+            .OrderByDescending(r => r.ReceivedAt)
+            .ToListAsync();
+
+        // Load your team members to populate the dropdown
+        salesTeam = await UserManager.Users.ToListAsync();
+
+        foreach (var rfq in rfqs)
+        {
+            if (!selectedUserIds.ContainsKey(rfq.Id))
+            {
+                selectedUserIds[rfq.Id] = rfq.AssignedUserId ?? "";
+            }
+        }
+    }
+
+    private async Task AssignRfq(Guid rfqId)
+    {
+        var rfq = await DbContext.Rfqs.FindAsync(rfqId);
+        var userId = selectedUserIds.ContainsKey(rfqId) ? selectedUserIds[rfqId] : null;
+
+        if (rfq != null && !string.IsNullOrEmpty(userId))
+        {
+            rfq.AssignedUserId = userId;
+            rfq.Status = RfqStatus.Assigned;
+            await DbContext.SaveChangesAsync();
+
+            // NOTE: Email notification logic to the assigned user will trigger here in the next step!
+
+            await LoadData();
+        }
+    }
+}

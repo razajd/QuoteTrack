@@ -1,0 +1,182 @@
+﻿@page "/admin/management/forecasting"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+@inject IQuoteService QuoteService
+
+<PageTitle>Revenue Forecasting</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-graph-up text-success me-2"></i>Revenue Forecasting</h2>
+    <a href="/admin/management" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i> Back to Overview</a>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5">
+        <div class="spinner-border text-success" role="status"></div>
+        <p class="mt-2 text-muted">Calculating projected revenue...</p>
+    </div>
+}
+else
+{
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 border-start border-secondary border-4 h-100 bg-light">
+                <div class="card-body p-4 text-center">
+                    <h6 class="text-muted fw-bold text-uppercase mb-2">Raw Pipeline Value</h6>
+                    <h2 class="mb-0 text-secondary fw-bold">BHD @rawPipelineValue.ToString("N3")</h2>
+                    <small class="text-muted">Total value if every single active quote is won (100% close rate).</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 border-start border-success border-4 h-100 bg-success bg-opacity-10">
+                <div class="card-body p-4 text-center">
+                    <h6 class="text-success fw-bold text-uppercase mb-2">Weighted Projected Revenue</h6>
+                    <h1 class="mb-0 text-success fw-bold display-5">BHD @weightedPipelineValue.ToString("N3")</h1>
+                    <small class="text-muted fw-bold">Probability-adjusted total based on individual deal confidence.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-bottom fw-bold py-3">
+            <i class="bi bi-person-lines-fill text-primary me-2"></i> Probability Projections by Team Member
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped mb-0 text-center align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start ps-3">Sales Rep</th>
+                            <th>Active Quotes</th>
+                            <th>Avg Deal Confidence</th>
+                            <th class="text-secondary fw-bold text-end">Raw Value</th>
+                            <th class="text-success fw-bold text-end pe-3">Projected (Weighted) Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var forecast in repForecasts)
+                        {
+                            <tr>
+                                <td class="text-start ps-3 fw-bold">@forecast.FullName</td>
+                                <td>@forecast.ActiveQuoteCount</td>
+                                <td>
+                                    <div class="d-flex align-items-center justify-content-center">
+                                        <div class="progress flex-grow-1 me-2" style="height: 8px; max-width: 100px;">
+                                            <div class="progress-bar @(forecast.AverageProbability > 60 ? "bg-success" : forecast.AverageProbability > 30 ? "bg-warning" : "bg-danger")"
+                                                 role="progressbar"
+                                                 style=@($"width: {forecast.AverageProbability}%")
+                                                 aria-valuenow="@forecast.AverageProbability"
+                                                 aria-valuemin="0"
+                                                 aria-valuemax="100"></div>
+                                        </div>
+                                        <span class="small fw-bold">@forecast.AverageProbability%</span>
+                                    </div>
+                                </td>
+                                <td class="text-secondary fw-bold text-end">BHD @forecast.RawValue.ToString("N3")</td>
+                                <td class="text-success fw-bold text-end pe-3">BHD @forecast.WeightedValue.ToString("N3")</td>
+                            </tr>
+                        }
+
+                        @if (!repForecasts.Any())
+                        {
+                            <tr>
+                                <td colspan="5" class="text-muted py-4">No active pipeline data available for forecasting.</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private decimal rawPipelineValue = 0;
+    private decimal weightedPipelineValue = 0;
+
+    private class RepForecast
+    {
+        public string OwnerId { get; set; } = string.Empty;
+        public string FullName { get; set; } = string.Empty;
+        public int ActiveQuoteCount { get; set; }
+        public decimal RawValue { get; set; }
+        public decimal WeightedValue { get; set; }
+        public int AverageProbability { get; set; }
+    }
+
+    private List<RepForecast> repForecasts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var allRecords = await QuoteService.GetAllQuotesAsync(null, true);
+
+        // Forecasting should only use actual outgoing quotes, not leads
+        var activeQuotes = allRecords
+            .Where(q => q.RecordType == QuoteRecordType.OutgoingQuote)
+            .Where(q => !q.IsDeleteRequested)
+            .Where(q =>
+                q.Status != QuoteStatus.Won &&
+                q.Status != QuoteStatus.Lost &&
+                q.Status != QuoteStatus.Cancelled &&
+                q.Status != QuoteStatus.Merged)
+            .ToList();
+
+        // Department totals
+        rawPipelineValue = activeQuotes.Sum(q => q.QuoteValue ?? 0m);
+
+        weightedPipelineValue = activeQuotes.Sum(q =>
+            (q.QuoteValue ?? 0m) * (Convert.ToDecimal(q.WinProbability) / 100m));
+
+        // Group by OwnerId, not Owner object
+        var groupedQuotes = activeQuotes
+            .Where(q => !string.IsNullOrWhiteSpace(q.OwnerId))
+            .GroupBy(q => new
+            {
+                OwnerId = q.OwnerId!,
+                FullName = q.Owner?.FullName ?? "Unknown User"
+            });
+
+        repForecasts.Clear();
+
+        foreach (var group in groupedQuotes)
+        {
+            var quotes = group.ToList();
+
+            var rawValue = quotes.Sum(q => q.QuoteValue ?? 0m);
+
+            var weightedValue = quotes.Sum(q =>
+                (q.QuoteValue ?? 0m) * (Convert.ToDecimal(q.WinProbability) / 100m));
+
+            var avgProbability = quotes.Any()
+                ? (int)Math.Round(quotes.Average(q => Convert.ToDecimal(q.WinProbability)))
+                : 0;
+
+            repForecasts.Add(new RepForecast
+            {
+                OwnerId = group.Key.OwnerId,
+                FullName = group.Key.FullName,
+                ActiveQuoteCount = quotes.Count,
+                RawValue = rawValue,
+                WeightedValue = weightedValue,
+                AverageProbability = avgProbability
+            });
+        }
+
+        repForecasts = repForecasts
+            .OrderByDescending(f => f.WeightedValue)
+            .ThenByDescending(f => f.RawValue)
+            .ThenBy(f => f.FullName)
+            .ToList();
+
+        isLoading = false;
+    }
+}

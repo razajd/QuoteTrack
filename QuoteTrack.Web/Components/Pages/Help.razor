@@ -1,0 +1,129 @@
+﻿@page "/help"
+@rendermode InteractiveServer
+@attribute [Authorize]
+
+@using QuoteTrack.Web.Help
+@inject HelpIndex HelpIndex
+@inject NavigationManager Nav
+
+<PageTitle>Help Center</PageTitle>
+
+<div class="container-fluid mt-4 mb-5">
+    <div class="d-flex justify-content-between align-items-end mb-3">
+        <div>
+            <h2 class="mb-1"><i class="bi bi-life-preserver text-primary me-2"></i>NexTraQ Help Center</h2>
+            <div class="text-muted small">Browse, search, and learn NexTraQ workflows.</div>
+        </div>
+
+        <div style="min-width:380px;">
+            <label class="form-label small fw-bold text-muted">Search</label>
+            <input class="form-control" value="@q" @oninput="OnSearchInput" placeholder="Search help articles..." />
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-3">
+            <div class="card shadow-sm border-0">
+                <div class="card-body">
+                    <div class="fw-bold mb-2">Categories</div>
+
+                    <div class="list-group">
+                        <button type="button"
+                                class="list-group-item list-group-item-action @(selectedCategory == "" ? "active" : "")"
+                                @onclick="SelectCategoryAll">
+                            All
+                        </button>
+
+                        @foreach (var c in Categories)
+                        {
+                            <button type="button"
+                                    class="list-group-item list-group-item-action @(selectedCategory == c ? "active" : "")"
+                                    @onclick="() => SelectCategory(c)">
+                                @c
+                            </button>
+                        }
+                    </div>
+
+                    <div class="mt-3 small text-muted">
+                        <b>@Filtered.Count</b> articles
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-9">
+            <div class="row g-3">
+                @if (Filtered.Count == 0)
+                {
+                    <div class="col-12">
+                        <div class="alert alert-light border">No help articles match your search.</div>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var a in Filtered)
+                    {
+                        <div class="col-md-6">
+                            <div class="card shadow-sm border-0 h-100" style="cursor:pointer;" @onclick="() => Open(a.Slug)">
+                                <div class="card-body">
+                                    <div class="text-muted small fw-bold text-uppercase">@a.Category</div>
+                                    <div class="fw-bold mt-1">@a.Title</div>
+                                    <div class="text-muted small mt-2">@a.Summary</div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string q = "";
+    private string selectedCategory = "";
+
+    private List<HelpDoc> All = new();
+    private List<HelpDoc> Filtered = new();
+    private List<string> Categories = new();
+
+    protected override void OnInitialized()
+    {
+        All = HelpIndex.LoadAll();
+        Categories = All.Select(x => x.Category).Distinct().OrderBy(x => x).ToList();
+        Apply();
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        q = e?.Value?.ToString() ?? "";
+        Apply();
+    }
+
+    private void SelectCategoryAll()
+    {
+        selectedCategory = "";
+        Apply();
+    }
+
+    private void SelectCategory(string cat)
+    {
+        selectedCategory = cat ?? "";
+        Apply();
+    }
+
+    private void Apply()
+    {
+        var results = string.IsNullOrWhiteSpace(q) ? All : HelpIndex.Search(q);
+
+        if (!string.IsNullOrWhiteSpace(selectedCategory))
+            results = results.Where(x => x.Category == selectedCategory).ToList();
+
+        Filtered = results;
+    }
+
+    private void Open(string slug)
+    {
+        Nav.NavigateTo("/help/" + slug);
+    }
+}

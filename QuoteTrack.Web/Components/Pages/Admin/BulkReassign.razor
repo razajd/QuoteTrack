@@ -1,0 +1,188 @@
+﻿@* QuoteTrack.Web/Components/Pages/Admin/BulkReassign.razor *@
+@page "/admin/reassign"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+@using QuoteTrack.Application.Interfaces
+@inject UserManager<ApplicationUser> UserManager
+@inject IQuoteService QuoteService
+
+<PageTitle>Bulk Reassign - QuoteTrack</PageTitle>
+
+<div class="container mt-4 mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-arrow-left-right text-primary me-2"></i>Bulk Quote Reassignment</h2>
+        <a href="/admin/users" class="btn btn-outline-secondary">Back to Users</a>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold">Transfer Active Pipeline</h5>
+        </div>
+        <div class="card-body bg-light">
+            <div class="row align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label fw-bold text-muted">From User (Current Owner)</label>
+                    <select class="form-select border-primary" @bind="fromUserId" @bind:after="LoadQuotesForUser">
+                        <option value="">-- Select User or Unassigned --</option>
+                        <option value="UNASSIGNED">-- Unassigned Pool --</option>
+                        @foreach (var u in allUsers)
+                        {
+                            <option value="@u.Id">@u.FullName (@u.Email)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2 text-center">
+                    <i class="bi bi-arrow-right-circle-fill text-primary" style="font-size: 2rem;"></i>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label fw-bold text-muted">To User (New Owner)</label>
+                    <select class="form-select border-success" @bind="toUserId">
+                        <option value="">-- Select Destination User --</option>
+                        @foreach (var u in allUsers)
+                        {
+                            <option value="@u.Id">@u.FullName (@u.Email)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center my-4"><div class="spinner-border text-primary"></div></div>
+    }
+    else if (userQuotes.Any())
+    {
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 fw-bold">Select Quotes to Transfer</h6>
+
+                <button class="btn btn-sm btn-success fw-bold px-4" @onclick="ExecuteTransfer" disabled="@IsTransferDisabled">
+                    <i class="bi bi-check2-circle me-1"></i> Transfer Selected
+                </button>
+            </div>
+            <div class="card-body p-0">
+                @if (showSuccess)
+                {
+                    <div class="alert alert-success m-3 fw-bold"><i class="bi bi-check-circle-fill me-2"></i>Quotes successfully reassigned!</div>
+                }
+
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 50px;" class="text-center">
+                                <input type="checkbox" class="form-check-input" checked="@selectAll" @onchange="ToggleSelectAll" />
+                            </th>
+                            <th>Reference</th>
+                            <th>Client</th>
+                            <th>Value</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var wrapper in userQuotes)
+                        {
+                            <tr>
+                                <td class="text-center">
+                                    <input type="checkbox" class="form-check-input" @bind="wrapper.IsSelected" />
+                                </td>
+                                <td class="fw-bold">@(wrapper.Quote.QuoteReference ?? "N/A")</td>
+                                <td>@(wrapper.Quote.ClientName ?? "Unknown")</td>
+                                <td class="text-success fw-bold">
+                                    @(wrapper.Quote.QuoteValue.HasValue? wrapper.Quote.QuoteValue.Value.ToString("N2") : "0.00") @(wrapper.Quote.Currency ?? "BHD")
+                                </td>
+                                <td><span class="badge bg-secondary">@wrapper.Quote.Status</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(fromUserId))
+    {
+        <div class="alert alert-info shadow-sm"><i class="bi bi-info-circle-fill me-2"></i>This user has no active quotes to transfer.</div>
+    }
+</div>
+
+@code {
+    private bool isLoading = false;
+    private bool showSuccess = false;
+    private string fromUserId = "";
+    private string toUserId = "";
+    private List<ApplicationUser> allUsers = new();
+    private List<QuoteSelectionWrapper> userQuotes = new();
+    private bool selectAll = false;
+
+    // FIXED DISABLED ATTRIBUTE LOGIC
+    private bool IsTransferDisabled => string.IsNullOrEmpty(toUserId) || toUserId == fromUserId || !userQuotes.Any(q => q.IsSelected);
+
+    protected override void OnInitialized()
+    {
+        // FIXED IQUERYABLE TOLISTASYNC ERROR
+        allUsers = UserManager.Users.ToList().OrderBy(u => u.FullName).ToList();
+    }
+
+    private async Task LoadQuotesForUser()
+    {
+        showSuccess = false;
+        selectAll = false;
+        if (string.IsNullOrEmpty(fromUserId))
+        {
+            userQuotes.Clear();
+            return;
+        }
+
+        isLoading = true;
+
+        string? searchId = fromUserId == "UNASSIGNED" ? null : fromUserId;
+        var allQuotes = await QuoteService.GetAllQuotesAsync(searchId, true);
+
+        userQuotes = allQuotes
+            .Where(q => q.OwnerId == searchId && q.Status != QuoteStatus.Won && q.Status != QuoteStatus.Lost && q.Status != QuoteStatus.Cancelled)
+            .Select(q => new QuoteSelectionWrapper { Quote = q, IsSelected = false })
+            .ToList();
+
+        isLoading = false;
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        selectAll = (bool)(e.Value ?? false);
+        foreach (var q in userQuotes)
+        {
+            q.IsSelected = selectAll;
+        }
+    }
+
+    private async Task ExecuteTransfer()
+    {
+        var selectedQuotes = userQuotes.Where(q => q.IsSelected).Select(q => q.Quote).ToList();
+        if (!selectedQuotes.Any() || string.IsNullOrEmpty(toUserId)) return;
+
+        var toUser = allUsers.FirstOrDefault(u => u.Id == toUserId);
+        var transferNote = $"Quote reassigned by Admin to {toUser?.FullName ?? "Unknown"}";
+
+        foreach (var quote in selectedQuotes)
+        {
+            quote.OwnerId = toUserId;
+            await QuoteService.UpdateQuoteAsync(quote);
+
+            var fu = new FollowUp { Id = Guid.NewGuid(), QuoteId = quote.Id, DueDate = DateTime.UtcNow, Notes = transferNote, CreatedAt = DateTime.UtcNow };
+            await QuoteService.AddFollowUpAsync(fu);
+        }
+
+        showSuccess = true;
+        await LoadQuotesForUser();
+    }
+
+    private class QuoteSelectionWrapper
+    {
+        public Quote Quote { get; set; } = new();
+        public bool IsSelected { get; set; }
+    }
+}

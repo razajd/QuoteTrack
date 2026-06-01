@@ -1,0 +1,299 @@
+﻿@page "/admin/management/dispatch"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,DeptHead")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+@inject IQuoteService QuoteService
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavManager
+
+<PageTitle>Lead Dispatch Board</PageTitle>
+
+<style>
+    /* Drag and Drop Styling */
+    .dispatch-zone {
+        transition: all 0.2s ease-in-out;
+        border: 2px dashed transparent;
+    }
+
+        .dispatch-zone.drag-hover {
+            background-color: rgba(252, 163, 17, 0.1) !important;
+            border-color: var(--theme-primary) !important;
+            transform: scale(1.02);
+        }
+
+    .draggable-card {
+        cursor: grab;
+        transition: transform 0.1s;
+    }
+
+        .draggable-card:active {
+            cursor: grabbing;
+            transform: scale(0.98);
+            opacity: 0.8;
+        }
+
+    .scrollable-pane {
+        max-height: 75vh;
+        overflow-y: auto;
+    }
+
+        .scrollable-pane::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scrollable-pane::-webkit-scrollbar-thumb {
+            background-color: #ccc;
+            border-radius: 4px;
+        }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-0"><i class="bi bi-diagram-3-fill text-primary me-2"></i>Lead Dispatch Board</h2>
+        <p class="text-muted mb-0 mt-1">Drag and drop leads, or <strong>Right-Click</strong> any card to assign it directly.</p>
+    </div>
+    <div class="text-end">
+        <h4 class="fw-bold mb-0 text-dark">@activeQuotes.Count()</h4>
+        <small class="text-muted text-uppercase fw-bold" style="font-size: 11px;">Total Active Deals</small>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
+}
+else
+{
+    <div class="row">
+        <div class="col-md-4 mb-4">
+            <div class="card shadow-sm border-0 bg-light h-100">
+                <div class="card-header bg-dark text-white fw-bold py-3 d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-inbox-fill me-2"></i> Unassigned Pool</span>
+                    <span class="badge bg-danger rounded-pill">@unassignedQuotes.Count()</span>
+                </div>
+
+                <div class="card-body p-2 scrollable-pane dispatch-zone @(dragTargetId == "unassigned" ? "drag-hover" : "")"
+                     @ondragover="HandleDragOver"
+                     @ondragover:preventDefault="true"
+                     @ondragenter='() => dragTargetId = "unassigned"'
+                     @ondragleave='() => dragTargetId = string.Empty'
+                     @ondrop='() => HandleDropAsync(null)'>
+
+                    @if (!unassignedQuotes.Any())
+                    {
+                        <div class="text-center p-5 text-muted">
+                            <i class="bi bi-check2-circle fs-1 d-block mb-2 text-success"></i>
+                            <span class="fw-bold">Inbox Zero!</span><br />All leads have been dispatched.
+                        </div>
+                    }
+
+                    @foreach (var quote in unassignedQuotes)
+                    {
+                        <div class="card mb-2 border-start border-danger border-4 draggable-card shadow-sm"
+                             draggable="true"
+                             ondragstart="arguments[0].dataTransfer.setData('text/plain', 'dragged');"
+                             @onmousedown="() => HandleDragStart(quote)"
+                             @oncontextmenu="((MouseEventArgs e) => OpenMenu(e, quote))"
+                             @oncontextmenu:preventDefault="true">
+                            <div class="card-body p-3">
+                                <div class="d-flex justify-content-between">
+                                    <h6 class="fw-bold text-primary mb-1 text-truncate" style="max-width: 80%;">
+                                        @(string.IsNullOrWhiteSpace(quote.ClientName) ? "Unknown Client" : quote.ClientName)
+                                    </h6>
+                                    <span class="badge bg-warning text-dark">@quote.Status.ToString()</span>
+                                </div>
+                                <div class="small text-muted mb-2 font-monospace">Ref: @(string.IsNullOrWhiteSpace(quote.QuoteReference) ? "N/A" : quote.QuoteReference)</div>
+                                <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+                                    <span class="small fw-bold text-success">@(quote.QuoteValue > 0 ? $"{quote.Currency} {quote.QuoteValue:N2}" : "TBD")</span>
+                                    <span class="small text-muted"><i class="bi bi-clock me-1"></i>@quote.CreatedAt.ToLocalTime().ToString("MMM dd")</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white border-bottom fw-bold py-3">
+                    <i class="bi bi-people-fill text-primary me-2"></i> Team Active Workload
+                </div>
+                <div class="card-body p-3 scrollable-pane bg-light">
+                    <div class="row row-cols-1 row-cols-md-2 g-3">
+                        @foreach (var user in activeUsers)
+                        {
+                            var userActiveDeals = activeQuotes.Where(q => q.OwnerId == user.Id).ToList();
+                            var workloadPercentage = Math.Min(100, (userActiveDeals.Count / 15.0) * 100);
+                            var barColor = workloadPercentage > 80 ? "bg-danger" : workloadPercentage > 50 ? "bg-warning" : "bg-success";
+
+                            <div class="col">
+                                <div class="card h-100 border-0 shadow-sm dispatch-zone @(dragTargetId == user.Id ? "drag-hover" : "")"
+                                     @ondragover="HandleDragOver"
+                                     @ondragover:preventDefault="true"
+                                     @ondragenter="() => dragTargetId = user.Id"
+                                     @ondragleave='() => dragTargetId = string.Empty'
+                                     @ondrop="() => HandleDropAsync(user.Id)">
+
+                                    <div class="card-body p-3">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <div class="d-flex align-items-center">
+                                                <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center fw-bold me-2" style="width: 40px; height: 40px;">
+                                                    @user.FullName.Substring(0, 1).ToUpper()
+                                                </div>
+                                                <div>
+                                                    <h6 class="fw-bold mb-0">@user.FullName</h6>
+                                                    <small class="text-muted" style="font-size: 11px;">Active Representative</small>
+                                                </div>
+                                            </div>
+                                            <div class="text-center">
+                                                <h4 class="mb-0 fw-bold @(userActiveDeals.Any() ? "text-primary" : "text-muted")">@userActiveDeals.Count</h4>
+                                            </div>
+                                        </div>
+
+                                        <div class="progress mb-2" style="height: 6px;">
+                                            <div class="progress-bar @barColor" role="progressbar" style="width: @(workloadPercentage)%;"></div>
+                                        </div>
+
+                                        <div class="d-flex justify-content-between align-items-center mt-2">
+                                            <span class="small text-muted fw-bold">Active Value:</span>
+                                            <span class="small fw-bold text-success">
+                                                BHD @(userActiveDeals.Sum(q => q.QuoteValue ?? 0).ToString("N2"))
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    @if (dragTargetId == user.Id)
+                                    {
+                                        <div class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-primary bg-opacity-75 rounded" style="z-index: 10;">
+                                            <h5 class="text-white fw-bold m-0"><i class="bi bi-box-arrow-in-down me-2"></i>Assign to @user.FullName.Split(' ')[0]</h5>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (isMenuOpen && targetQuote != null)
+{
+    <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1040;" @onclick="CloseMenu"></div>
+
+    <div class="dropdown-menu show shadow-lg border-0" style="position: fixed; left: @(menuX)px; top: @(menuY)px; z-index: 1050; display: block; min-width: 200px;">
+        <div class="dropdown-header fw-bold bg-light text-dark">
+            Route: @targetQuote.QuoteReference
+        </div>
+
+        <button class="dropdown-item py-2 border-bottom" @onclick='() => AssignFromMenu(null)'>
+            <i class="bi bi-inbox me-2 text-danger"></i> Return to Unassigned
+        </button>
+
+        @foreach (var user in activeUsers)
+        {
+            <button class="dropdown-item py-2" @onclick="() => AssignFromMenu(user.Id)">
+                <i class="bi bi-person-circle me-2 text-primary"></i> Assign to @user.FullName.Split(' ')[0]
+            </button>
+        }
+
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item text-muted small py-2" @onclick="CloseMenu"><i class="bi bi-x-circle me-2"></i>Cancel</button>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private List<Quote> activeQuotes = new();
+    private List<ApplicationUser> activeUsers = new();
+
+    private IEnumerable<Quote> unassignedQuotes => activeQuotes.Where(q => string.IsNullOrEmpty(q.OwnerId));
+
+    // Drag State
+    private Quote? draggedQuote;
+    private string dragTargetId = string.Empty;
+
+    // Right-Click Menu State
+    private double menuX = 0;
+    private double menuY = 0;
+    private bool isMenuOpen = false;
+    private Quote? targetQuote = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBoardDataAsync();
+        isLoading = false;
+    }
+
+    private async Task LoadBoardDataAsync()
+    {
+        var allQuotes = await QuoteService.GetAllQuotesAsync(null, true);
+
+        // LEADS RULE:
+        // Dispatch board is for assigning Leads to reps.
+        // It must NOT include Outgoing Quotes.
+        activeQuotes = allQuotes.Where(q =>
+            q.RecordType == QuoteRecordType.Lead &&
+            q.Status != QuoteStatus.Won &&
+            q.Status != QuoteStatus.Lost &&
+            !q.IsDeleteRequested).ToList();
+
+        var allUsers = await UserManager.Users.ToListAsync();
+        activeUsers = allUsers.Where(u => u.IsActive).OrderBy(u => u.FullName).ToList();
+    }
+
+    // --- DRAG AND DROP LOGIC ---
+    private void HandleDragStart(Quote quote)
+    {
+        draggedQuote = quote;
+        CloseMenu(); // Ensure menu closes if they start dragging
+    }
+
+    private void HandleDragOver() { }
+
+    private async Task HandleDropAsync(string? newOwnerId)
+    {
+        dragTargetId = string.Empty;
+
+        if (draggedQuote != null && draggedQuote.OwnerId != newOwnerId)
+        {
+            draggedQuote.OwnerId = newOwnerId;
+            await QuoteService.UpdateQuoteAsync(draggedQuote);
+            await LoadBoardDataAsync();
+        }
+        draggedQuote = null;
+    }
+
+    // --- RIGHT CLICK MENU LOGIC ---
+    private void OpenMenu(MouseEventArgs e, Quote quote)
+    {
+        menuX = e.ClientX;
+        menuY = e.ClientY;
+        targetQuote = quote;
+        isMenuOpen = true;
+    }
+
+    private void CloseMenu()
+    {
+        isMenuOpen = false;
+        targetQuote = null;
+    }
+
+    private async Task AssignFromMenu(string? newOwnerId)
+    {
+        if (targetQuote != null && targetQuote.OwnerId != newOwnerId)
+        {
+            targetQuote.OwnerId = newOwnerId;
+            await QuoteService.UpdateQuoteAsync(targetQuote);
+            await LoadBoardDataAsync();
+        }
+        CloseMenu();
+    }
+}

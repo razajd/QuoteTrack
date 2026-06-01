@@ -1,0 +1,192 @@
+﻿@page "/admin/management/velocity"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+@inject IQuoteService QuoteService
+
+<PageTitle>Pipeline Velocity</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-funnel text-secondary me-2"></i>Pipeline Velocity & Sales Cycle</h2>
+    <a href="/admin/management" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i> Back to Overview</a>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5">
+        <div class="spinner-border text-secondary" role="status"></div>
+        <p class="mt-2 text-muted">Calculating sales cycle speeds...</p>
+    </div>
+}
+else
+{
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 border-start border-success border-4 h-100 bg-success bg-opacity-10">
+                <div class="card-body p-4 text-center">
+                    <h6 class="text-success fw-bold text-uppercase mb-2">Average Time to Close (Won Deals)</h6>
+                    <h1 class="mb-0 text-success fw-bold display-5">@avgDaysToWin <span class="fs-4 text-muted fw-normal">Days</span></h1>
+                    <small class="text-muted fw-bold">From creation to being marked as 'Won'.</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 border-start border-info border-4 h-100 bg-light">
+                <div class="card-body p-4 text-center">
+                    <h6 class="text-info fw-bold text-uppercase mb-2">Average Age of Active Deals</h6>
+                    <h1 class="mb-0 text-info fw-bold display-5">@avgAgeActiveDeals <span class="fs-4 text-muted fw-normal">Days</span></h1>
+                    <small class="text-muted fw-bold">How long current quotes have been sitting in the pipeline.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-dark text-white fw-bold py-3">
+            <i class="bi bi-speedometer text-info me-2"></i> Cycle Speed by Team Member
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped mb-0 text-center align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start ps-3">Sales Rep</th>
+                            <th>Active Pipeline Volume</th>
+                            <th class="text-info fw-bold">Avg Age of Active Deals</th>
+                            <th class="text-success fw-bold">Avg Days to Win</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var speed in repSpeeds)
+                        {
+                            <tr>
+                                <td class="text-start ps-3 fw-bold">@speed.FullName</td>
+                                <td>@speed.ActiveCount deals</td>
+                                <td>
+                                    <span class="badge @(speed.AvgActiveAge > 30 ? "bg-danger" : speed.AvgActiveAge > 14 ? "bg-warning text-dark" : "bg-info text-dark") fs-6">
+                                        @(speed.ActiveCount > 0 ? $"{speed.AvgActiveAge} Days" : "N/A")
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="text-success fw-bold">
+                                        @(speed.AvgDaysToWin > 0 ? $"{speed.AvgDaysToWin} Days" : "N/A")
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                        @if (!repSpeeds.Any())
+                        {
+                            <tr>
+                                <td colspan="4" class="text-muted py-4">No velocity data available.</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private int avgDaysToWin = 0;
+    private int avgAgeActiveDeals = 0;
+
+    private class RepVelocity
+    {
+        public string OwnerId { get; set; } = string.Empty;
+        public string FullName { get; set; } = string.Empty;
+        public int ActiveCount { get; set; }
+        public int AvgActiveAge { get; set; }
+        public int AvgDaysToWin { get; set; }
+    }
+
+    private List<RepVelocity> repSpeeds = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var allRecords = await QuoteService.GetAllQuotesAsync(null, true);
+        var now = DateTime.UtcNow;
+
+        // This page should measure only actual quote/deal pipeline, not leads
+        var allQuotes = allRecords
+            .Where(q => q.RecordType == QuoteRecordType.OutgoingQuote)
+            .Where(q => !q.IsDeleteRequested)
+            .ToList();
+
+        var wonQuotes = allQuotes
+            .Where(q => q.Status == QuoteStatus.Won)
+            .ToList();
+
+        var activeQuotes = allQuotes
+            .Where(q =>
+                q.Status != QuoteStatus.Won &&
+                q.Status != QuoteStatus.Lost &&
+                q.Status != QuoteStatus.Cancelled &&
+                q.Status != QuoteStatus.Merged)
+            .ToList();
+
+        if (wonQuotes.Any())
+        {
+            avgDaysToWin = (int)Math.Round(wonQuotes.Average(q => (q.UpdatedAt - q.CreatedAt).TotalDays));
+        }
+
+        if (activeQuotes.Any())
+        {
+            avgAgeActiveDeals = (int)Math.Round(activeQuotes.Average(q => (now - q.CreatedAt).TotalDays));
+        }
+
+        // Group by owner ID, not by Owner object reference
+        var groupedQuotes = allQuotes
+            .Where(q => !string.IsNullOrWhiteSpace(q.OwnerId))
+            .GroupBy(q => new
+            {
+                OwnerId = q.OwnerId!,
+                FullName = q.Owner?.FullName ?? "Unknown User"
+            });
+
+        repSpeeds.Clear();
+
+        foreach (var group in groupedQuotes)
+        {
+            var userQuotes = group.ToList();
+
+            var userActive = userQuotes
+                .Where(q =>
+                    q.Status != QuoteStatus.Won &&
+                    q.Status != QuoteStatus.Lost &&
+                    q.Status != QuoteStatus.Cancelled &&
+                    q.Status != QuoteStatus.Merged)
+                .ToList();
+
+            var userWon = userQuotes
+                .Where(q => q.Status == QuoteStatus.Won)
+                .ToList();
+
+            repSpeeds.Add(new RepVelocity
+            {
+                OwnerId = group.Key.OwnerId,
+                FullName = group.Key.FullName,
+                ActiveCount = userActive.Count,
+                AvgActiveAge = userActive.Any()
+                    ? (int)Math.Round(userActive.Average(q => (now - q.CreatedAt).TotalDays))
+                    : 0,
+                AvgDaysToWin = userWon.Any()
+                    ? (int)Math.Round(userWon.Average(q => (q.UpdatedAt - q.CreatedAt).TotalDays))
+                    : 0
+            });
+        }
+
+        repSpeeds = repSpeeds
+            .OrderByDescending(r => r.ActiveCount)
+            .ThenByDescending(r => r.AvgActiveAge)
+            .ThenBy(r => r.FullName)
+            .ToList();
+
+        isLoading = false;
+    }
+}

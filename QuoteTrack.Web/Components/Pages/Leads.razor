@@ -1,0 +1,373 @@
+﻿@page "/leads"
+@rendermode InteractiveServer
+@attribute [Authorize]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+
+@inject IRfqService RfqService
+@inject IQuoteService QuoteService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavManager
+
+<PageTitle>Leads & RFQs</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="mb-1"><i class="bi bi-inbox-fill text-primary me-2"></i>Leads</h1>
+        <div class="text-muted small">
+            Create leads manually and, if you are admin/head, assign new incoming RFQs.
+        </div>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="ReloadPage">
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+        </button>
+        <button class="btn btn-outline-primary" @onclick="OpenLeadHistory">
+            <i class="bi bi-clock-history me-1"></i> Lead History
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(uiMessage))
+{
+    <div class="alert @(uiOk ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm">
+        @uiMessage
+        <button type="button" class="btn-close" @onclick="() => uiMessage = string.Empty"></button>
+    </div>
+}
+
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-header bg-white fw-bold border-bottom py-3">
+        <i class="bi bi-plus-circle-fill text-success me-2"></i>Create Manual Lead
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-muted">Client Name *</label>
+                <input class="form-control" @bind="manualClientName" />
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-muted">Client Email</label>
+                <input class="form-control" @bind="manualClientEmail" />
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-muted">Lead Source</label>
+                <input class="form-control" @bind="manualLeadSource" placeholder="Walk-in / Phone / Referral / Manual Entry" />
+            </div>
+
+            <div class="col-md-8">
+                <label class="form-label small fw-bold text-muted">Subject *</label>
+                <input class="form-control" @bind="manualSubject" />
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-muted">Next Action Due</label>
+                <input type="date" class="form-control" @bind="manualNextDueLocal" @bind:format="yyyy-MM-dd" />
+            </div>
+
+            @if (isAdminOrHead)
+            {
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold text-muted">Assign To</label>
+                    <select class="form-select" @bind="selectedManualOwnerId">
+                        <option value="">Me (@currentUserName)</option>
+                        @foreach (var user in systemUsers.OrderBy(x => x.FullName))
+                        {
+                            <option value="@user.Id">@user.FullName</option>
+                        }
+                    </select>
+                </div>
+            }
+
+            <div class="col-12">
+                <label class="form-label small fw-bold text-muted">Initial Notes / Requirement Summary</label>
+                <textarea class="form-control" rows="4" @bind="manualNotes"></textarea>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-4">
+            <button class="btn btn-success fw-bold shadow-sm" @onclick="CreateManualLead">
+                <i class="bi bi-plus-circle me-1"></i> Create Lead
+            </button>
+
+            <button class="btn btn-outline-secondary fw-bold" @onclick="ClearManualForm">
+                Clear
+            </button>
+        </div>
+    </div>
+</div>
+
+@if (isAdminOrHead)
+{
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-dark text-white fw-bold py-3 d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-person-check-fill me-2"></i>Incoming Unassigned Leads / RFQs</span>
+            <span class="badge bg-light text-dark">@unassignedRfqs.Count</span>
+        </div>
+        <div class="card-body p-0">
+            @if (isQueueLoading)
+            {
+                <div class="p-4 text-center">
+                    <div class="spinner-border text-primary"></div>
+                </div>
+            }
+            else if (!unassignedRfqs.Any())
+            {
+                <div class="alert alert-info m-3 mb-0">
+                    No new leads at the moment. The inbox is clear!
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover table-bordered align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date Received</th>
+                                <th>Client Name</th>
+                                <th>Subject</th>
+                                <th>Contact Email</th>
+                                <th style="min-width: 250px;">Assign To</th>
+                                <th style="min-width: 120px;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var rfq in unassignedRfqs)
+                            {
+                                <tr>
+                                    <td>@rfq.ReceivedAt.ToLocalTime().ToString("g")</td>
+                                    <td>@(string.IsNullOrWhiteSpace(rfq.ClientName) ? "Unknown" : rfq.ClientName)</td>
+                                    <td>@rfq.Subject</td>
+                                    <td>@rfq.ClientEmail</td>
+                                    <td>
+                                        <select class="form-select" @bind="selectedUserIds[rfq.Id]">
+                                            <option value="">-- Select Team Member --</option>
+                                            @foreach (var user in systemUsers.OrderBy(x => x.FullName))
+                                            {
+                                                <option value="@user.Id">@user.FullName</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-primary fw-bold" @onclick="() => AssignLead(rfq.Id)">
+                                            Assign
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <div class="alert alert-light border shadow-sm">
+        <b>Tip:</b> Use the form above to create your own lead manually. To review old items, open <b>Lead History</b>.
+    </div>
+}
+
+@code {
+    private List<Rfq> unassignedRfqs = new();
+    private List<ApplicationUser> systemUsers = new();
+
+    private Dictionary<Guid, string> selectedUserIds = new();
+
+    private bool isQueueLoading = true;
+    private bool isAdminOrHead = false;
+
+    private string? currentUserId;
+    private string currentUserName = "Current User";
+    private string currentUserEmail = "";
+
+    private string uiMessage = "";
+    private bool uiOk = true;
+
+    // manual lead form
+    private string manualClientName = "";
+    private string manualClientEmail = "";
+    private string manualLeadSource = "Manual Entry";
+    private string manualSubject = "";
+    private string manualNotes = "";
+    private DateTime manualNextDueLocal = DateTime.Today.AddDays(1);
+    private string selectedManualOwnerId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        currentUserId = UserManager.GetUserId(user);
+
+        var currentUser = await UserManager.GetUserAsync(user);
+        if (currentUser != null)
+        {
+            currentUserName = currentUser.FullName;
+            currentUserEmail = currentUser.Email ?? "";
+        }
+
+        var isAdmin = user.IsInRole("Admin");
+        var isHead = user.IsInRole("DepartmentHead") ||
+                     user.IsInRole("DeptHead") ||
+                     user.IsInRole("Head") ||
+                     user.IsInRole("Manager");
+
+        isAdminOrHead = isAdmin || isHead;
+
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        systemUsers = await QuoteService.GetSystemUsersAsync();
+
+        if (isAdminOrHead)
+        {
+            isQueueLoading = true;
+            unassignedRfqs = await RfqService.GetUnassignedRfqsAsync();
+
+            selectedUserIds.Clear();
+            foreach (var rfq in unassignedRfqs)
+            {
+                selectedUserIds[rfq.Id] = "";
+            }
+
+            isQueueLoading = false;
+        }
+        else
+        {
+            unassignedRfqs = new List<Rfq>();
+            isQueueLoading = false;
+        }
+    }
+
+    private async Task AssignLead(Guid rfqId)
+    {
+        if (selectedUserIds.TryGetValue(rfqId, out var userId) && !string.IsNullOrWhiteSpace(userId))
+        {
+            await RfqService.AssignRfqAsync(rfqId, userId);
+            uiOk = true;
+            uiMessage = "Lead assigned successfully.";
+            await LoadDataAsync();
+        }
+        else
+        {
+            uiOk = false;
+            uiMessage = "Please select a team member first.";
+        }
+    }
+
+    private async Task CreateManualLead()
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId))
+        {
+            uiOk = false;
+            uiMessage = "User session missing. Please log in again.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(manualClientName))
+        {
+            uiOk = false;
+            uiMessage = "Client Name is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(manualSubject))
+        {
+            uiOk = false;
+            uiMessage = "Subject is required.";
+            return;
+        }
+
+        var ownerId = currentUserId;
+        if (isAdminOrHead && !string.IsNullOrWhiteSpace(selectedManualOwnerId))
+            ownerId = selectedManualOwnerId;
+
+        var dueUtc = new DateTime(
+            manualNextDueLocal.Year,
+            manualNextDueLocal.Month,
+            manualNextDueLocal.Day,
+            12, 0, 0,
+            DateTimeKind.Local).ToUniversalTime();
+
+        var nowUtc = DateTime.UtcNow;
+
+        var lead = new Quote
+        {
+            Id = Guid.NewGuid(),
+            RecordType = QuoteRecordType.Lead,
+            Status = QuoteStatus.LeadNew,
+
+            SenderName = string.IsNullOrWhiteSpace(manualClientName) ? currentUserName : manualClientName.Trim(),
+            SenderEmail = string.IsNullOrWhiteSpace(manualClientEmail) ? currentUserEmail : manualClientEmail.Trim(),
+
+            ClientName = manualClientName.Trim(),
+            Subject = manualSubject.Trim(),
+            SolutionSummary = string.IsNullOrWhiteSpace(manualNotes) ? null : manualNotes.Trim(),
+            LeadSource = string.IsNullOrWhiteSpace(manualLeadSource) ? "Manual Entry" : manualLeadSource.Trim(),
+
+            OwnerId = ownerId,
+            NextFollowUpDate = dueUtc,
+
+            EmailMessageId = "manual-" + Guid.NewGuid().ToString("N"),
+            EmailReceivedDateTime = nowUtc,
+            EmailSentDateTime = nowUtc,
+
+            CreatedAt = nowUtc,
+            UpdatedAt = nowUtc
+        };
+
+        try
+        {
+            await QuoteService.AddQuoteAsync(lead);
+
+            uiOk = true;
+            uiMessage = "Manual lead created successfully.";
+
+            ClearManualForm();
+            await LoadDataAsync();
+
+            NavManager.NavigateTo($"/lead/{lead.Id}");
+        }
+        catch (Exception ex)
+        {
+            uiOk = false;
+            uiMessage = "Failed to create lead: " + ex.Message;
+        }
+    }
+
+    private void ClearManualForm()
+    {
+        manualClientName = "";
+        manualClientEmail = "";
+        manualLeadSource = "Manual Entry";
+        manualSubject = "";
+        manualNotes = "";
+        manualNextDueLocal = DateTime.Today.AddDays(1);
+        selectedManualOwnerId = "";
+    }
+
+    private async Task ReloadPage()
+    {
+        await LoadDataAsync();
+        uiOk = true;
+        uiMessage = "Refreshed.";
+    }
+
+    private void OpenLeadHistory()
+    {
+        NavManager.NavigateTo("/lead-history");
+    }
+}

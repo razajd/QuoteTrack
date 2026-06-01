@@ -1,0 +1,97 @@
+﻿@page "/help/{Slug}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+
+@using QuoteTrack.Web.Help
+@inject HelpIndex HelpIndex
+@inject NavigationManager Nav
+
+<PageTitle>@(doc?.Title ?? "Help")</PageTitle>
+
+<div class="container-fluid mt-4 mb-5">
+    <button type="button" class="btn btn-outline-secondary btn-sm fw-bold mb-3" @onclick="Back">
+        <i class="bi bi-arrow-left me-1"></i> Back to Help Center
+    </button>
+
+    @if (doc == null)
+    {
+        <div class="alert alert-danger">Help article not found.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            <div class="col-lg-3">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="fw-bold">@doc.Title</div>
+                        <div class="text-muted small">@doc.Category</div>
+                        <div class="text-muted small mt-2">@doc.Summary</div>
+
+                        <hr />
+
+                        <div class="fw-bold small mb-2">On this page</div>
+                        @if (headings.Count == 0)
+                        {
+                            <div class="text-muted small">No headings.</div>
+                        }
+                        else
+                        {
+                            @foreach (var h in headings)
+                            {
+                                <div class="small mb-1">
+                                    <a href="@($"#{h.Anchor}")">@h.Text</a>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <div class="card shadow-sm border-0 mt-3">
+                    <div class="card-body">
+                        <div class="fw-bold small mb-2">Other articles</div>
+                        @foreach (var a in related.Take(10))
+                        {
+                            <div class="small mb-1">
+                                <a href="@("/help/" + a.Slug)">@a.Title</a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-9">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body">
+                        @((MarkupString)html)
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    private HelpDoc? doc;
+    private string html = "";
+    private List<(string Text, string Anchor)> headings = new();
+    private List<HelpDoc> related = new();
+
+    protected override void OnParametersSet()
+    {
+        doc = HelpIndex.LoadBySlug(Slug);
+        if (doc == null) return;
+
+        headings = HelpIndex.ExtractHeadings(doc.Content);
+        html = SimpleMarkdown.ToHtml(doc.Content, HelpIndex.Slugify);
+
+        related = HelpIndex.LoadAll()
+            .Where(a => a.Slug != doc.Slug)
+            .OrderBy(a => a.Category)
+            .ThenBy(a => a.Title)
+            .ToList();
+    }
+
+    private void Back() => Nav.NavigateTo("/help");
+}

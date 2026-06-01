@@ -1,0 +1,114 @@
+﻿@page "/admin/management/alerts"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@inject IQuoteService QuoteService
+
+<PageTitle>Deal Rotting Alerts</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-exclamation-triangle text-danger me-2"></i>Deal Rotting Alerts</h2>
+    <a href="/admin/management" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i> Back to Overview</a>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5">
+        <div class="spinner-border text-danger" role="status"></div>
+        <p class="mt-2 text-muted">Scanning pipeline for neglected deals...</p>
+    </div>
+}
+else
+{
+    <div class="alert alert-danger shadow-sm border-0 border-start border-danger border-4 mb-4">
+        <div class="d-flex align-items-center">
+            <i class="bi bi-shield-fill-exclamation fs-1 me-3"></i>
+            <div>
+                <h4 class="alert-heading fw-bold mb-1">Pipeline Risk Detected</h4>
+                <p class="mb-0">Found <strong>@staleQuotes.Count</strong> active deals that require immediate management intervention.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-bottom fw-bold py-3 text-danger">
+            <i class="bi bi-hourglass-bottom me-1"></i> High-Risk Quotes (Untouched > 14 Days or Overdue)
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">Owner</th>
+                            <th>Quote Subject</th>
+                            <th>Value</th>
+                            <th>Risk Factor</th>
+                            <th>Last Activity</th>
+                            <th class="pe-3 text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var quote in staleQuotes)
+                        {
+                            var daysStale = (int)(DateTime.UtcNow - quote.UpdatedAt).TotalDays;
+                            var isOverdue = quote.NextFollowUpDate.HasValue && quote.NextFollowUpDate.Value <= DateTime.UtcNow;
+
+                            <tr>
+                                <td class="ps-3 fw-bold">@(quote.Owner?.FullName ?? "Unassigned")</td>
+                                <td class="text-truncate" style="max-width: 300px;" title="@quote.Subject">@quote.Subject</td>
+                                <td class="fw-bold">
+                                    @(quote.QuoteValue.HasValue ? $"BHD {quote.QuoteValue.Value:N3}" : "-")
+                                </td>
+                                <td>
+                                    @if (daysStale > 14)
+                                    {
+                                        <span class="badge bg-warning text-dark me-1"><i class="bi bi-pause-circle me-1"></i>Stale: @daysStale Days</span>
+                                    }
+                                    @if (isOverdue)
+                                    {
+                                        <span class="badge bg-danger"><i class="bi bi-calendar-x me-1"></i>Overdue Task</span>
+                                    }
+                                </td>
+                                <td class="text-muted small">@quote.UpdatedAt.ToLocalTime().ToString("dd MMM yyyy")</td>
+                                <td class="pe-3 text-end">
+                                    <a href="/quote/@quote.Id" class="btn btn-sm btn-outline-danger fw-bold shadow-sm">Review Deal</a>
+                                </td>
+                            </tr>
+                        }
+                        @if (!staleQuotes.Any())
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-5">
+                                    <i class="bi bi-check-circle text-success fs-1"></i>
+                                    <p class="mt-3 text-muted fw-bold">Pipeline is healthy! No rotting deals detected.</p>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private List<Quote> staleQuotes = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var allQuotes = await QuoteService.GetAllQuotesAsync(null, true);
+        var now = DateTime.UtcNow;
+
+        // Find active quotes that haven't been touched in 14 days OR have missed their follow-up date
+        staleQuotes = allQuotes.Where(q =>
+            !q.Status.ToString().Equals("Won", StringComparison.OrdinalIgnoreCase) &&
+            !q.Status.ToString().Equals("Lost", StringComparison.OrdinalIgnoreCase) &&
+            ((now - q.UpdatedAt).TotalDays > 14 || (q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= now))
+        ).OrderByDescending(q => q.QuoteValue ?? 0).ToList();
+
+        isLoading = false;
+    }
+}

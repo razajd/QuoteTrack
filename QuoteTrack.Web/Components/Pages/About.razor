@@ -1,0 +1,11 @@
+﻿@page "/about"
+<PageTitle>About - @AppConfig.Current.AppTitle</PageTitle>
+@inject QuoteTrack.Web.Services.AppConfigService AppConfig
+
+<div class="container mt-5 bg-white p-5 shadow-sm rounded">
+    <h2 class="text-primary fw-bold mb-4">About @AppConfig.Current.AppTitle</h2>
+    <p class="lead">Welcome to your dedicated Enterprise CRM and Pipeline Management system.</p>
+    <p>This system automatically ingests, extracts, and tracks quotation data to ensure your sales pipeline is accurate, follow-ups are timely, and no lead is left behind. It was custom-built to streamline operations and enforce strict accountability across the sales team.</p>
+    <hr class="my-4" />
+    <p class="text-muted small">System Version 1.0.0 | Built for enterprise pipeline management.</p>
+</div>

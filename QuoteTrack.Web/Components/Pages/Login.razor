@@ -1,0 +1,104 @@
+﻿@* QuoteTrack.Web/Components/Pages/Login.razor *@
+@page "/login"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Infrastructure.Logging
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Application.Interfaces
+@inject UserManager<ApplicationUser> UserManager
+@inject IAppDbContext Db
+
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject IAppDbContext Db
+@inject NavigationManager NavigationManager
+
+<PageTitle>Login - QuoteTrack</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="card shadow-lg border-0 rounded-lg mt-5">
+                <div class="card-header bg-dark text-white text-center py-4">
+                    <h3 class="font-weight-light my-2 fw-bold">QuoteTrack</h3>
+                    <small>Enterprise Portal</small>
+                </div>
+                <div class="card-body p-4">
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger fw-bold text-center">@errorMessage</div>
+                    }
+
+                    <EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
+                        <DataAnnotationsValidator />
+
+                        <div class="form-floating mb-3">
+                            <InputText id="email" class="form-control" @bind-Value="Input.Email" placeholder="name@example.com" />
+                            <label for="email">Email address</label>
+                        </div>
+
+                        <div class="form-floating mb-4">
+                            <InputText id="password" type="password" class="form-control" @bind-Value="Input.Password" placeholder="Password" />
+                            <label for="password">Password</label>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg fw-bold">Secure Login</button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private LoginModel Input { get; set; } = new();
+
+    private string? errorMessage;
+
+    private async Task LoginUser()
+    {
+        // This securely checks the password against the encrypted database hash
+        var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, isPersistent: true, lockoutOnFailure: false);
+
+        if (result.Succeeded)
+        {
+            try
+            {
+                var user = await UserManager.FindByEmailAsync(Input.Email);
+                if (user != null)
+                {
+                    Db.ActivityLogs.Add(new QuoteTrack.Domain.Entities.ActivityLog
+                    {
+                        UserId = user.Id,
+                        Action = "LOGIN_SUCCESS",
+                        Details = "User logged in successfully.",
+                        Timestamp = DateTime.UtcNow
+                    });
+                    await Db.SaveChangesAsync();
+                }
+            }
+            catch { /* fail-safe: never block login */ }
+
+            SystemLogger.LogEvent("LOGIN", "Auth", $"Login success: {Input.Email}");
+            NavigationManager.NavigateTo("/", forceLoad: true);
+        }
+        else
+        {
+            SystemLogger.LogEvent("LOGIN", "Auth", $"Login failed: {Input.Email}");
+            errorMessage = "Invalid login attempt. Please check your email and password.";
+        }
+    }
+
+    public class LoginModel
+    {
+        [Required]
+        public string Email { get; set; } = "";
+
+        [Required]
+        public string Password { get; set; } = "";
+    }
+}

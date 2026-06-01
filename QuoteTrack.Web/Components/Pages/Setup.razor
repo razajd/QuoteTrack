@@ -1,0 +1,176 @@
+﻿@* QuoteTrack.Web/Components/Pages/Setup.razor *@
+@page "/setup"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Infrastructure.Data
+@using QuoteTrack.Web.Services
+@inject AppConfigService ConfigService
+@inject IServiceProvider ServiceProvider
+@inject NavigationManager NavManager
+
+<PageTitle>System Installation - QuoteTrack CRM</PageTitle>
+
+<div class="d-flex align-items-center justify-content-center" style="min-height: 100vh; background-color: #f4f6f9;">
+    <div class="card shadow-lg border-0" style="max-width: 600px; width: 100%; border-radius: 10px; overflow: hidden;">
+
+        <div class="bg-primary text-white text-center p-4">
+            <h3 class="fw-bold mb-0"><i class="bi bi-rocket-takeoff-fill me-2"></i>QuoteTrack CRM</h3>
+            <p class="mb-0 text-white-50">First-Run Installation Wizard</p>
+        </div>
+
+        <div class="card-body p-5 bg-white">
+
+            @if (installing)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
+                    <h5 class="fw-bold">Installing System...</h5>
+                    <p class="text-muted">Building database tables and finalizing configurations. Do not close this page.</p>
+                </div>
+            }
+            else
+            {
+                <p class="text-muted text-center mb-4">Welcome to your new CRM! Please provide the PostgreSQL database connection details below to initialize the system.</p>
+
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger fw-bold small" style="word-wrap: break-word;"><i class="bi bi-exclamation-octagon-fill me-2"></i>@errorMessage</div>
+                }
+                @if (testSuccess)
+                {
+                    <div class="alert alert-success fw-bold small"><i class="bi bi-check-circle-fill me-2"></i>Connection Successful! Ready to install.</div>
+                }
+
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold small text-muted">Database Host (IP / Server)</label>
+                        <input type="text" class="form-control" @bind="dbHost" placeholder="localhost or 192.168.x.x" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold small text-muted">Port</label>
+                        <input type="number" class="form-control" @bind="dbPort" />
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold small text-muted">Database Name</label>
+                    <input type="text" class="form-control" @bind="dbName" placeholder="QuoteTrackDB" />
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-muted">PostgreSQL Username</label>
+                        <input type="text" class="form-control" @bind="dbUser" placeholder="postgres" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-muted">PostgreSQL Password</label>
+                        <input type="password" class="form-control" @bind="dbPassword" />
+                    </div>
+                </div>
+
+                <hr class="mb-4" />
+
+                <div class="d-flex justify-content-between">
+                    <button class="btn btn-outline-secondary fw-bold px-4" @onclick="TestConnection"><i class="bi bi-wifi me-2"></i>Test Connection</button>
+                    <button class="btn btn-primary fw-bold px-4" @onclick="ExecuteInstall" disabled="@(!testSuccess)"><i class="bi bi-database-fill-check me-2"></i>Install Database</button>
+                </div>
+            }
+
+        </div>
+    </div>
+</div>
+
+@code {
+    private string dbHost = "nexcelcloud.com";
+    private int dbPort = 5432;
+    private string dbName = "nextraq";
+    private string dbUser = "postgres";
+    private string dbPassword = "";
+
+    private string errorMessage = "";
+    private bool testSuccess = false;
+    private bool installing = false;
+
+    private string BuildConnectionString()
+    {
+        // The Nuclear Option: Disables SSL, disables connection pooling, and sets strict timeouts.
+        return $"Host={dbHost};Port={dbPort};Database={dbName};Username={dbUser};Password={dbPassword};Include Error Detail=true;SSL Mode=Disable;Pooling=false;Keepalive=0;Timeout=10;Command Timeout=10;";
+    }
+
+    private async Task TestConnection()
+    {
+        errorMessage = "";
+        testSuccess = false;
+
+        if (string.IsNullOrWhiteSpace(dbPassword))
+        {
+            errorMessage = "Database password cannot be empty.";
+            return;
+        }
+
+        try
+        {
+            var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
+            optionsBuilder.UseNpgsql(BuildConnectionString());
+
+            using var tempContext = new AppDbContext(optionsBuilder.Options);
+
+            // Forcing the connection open to catch the EXACT raw error message
+            var conn = tempContext.Database.GetDbConnection();
+            await conn.OpenAsync();
+            await conn.CloseAsync();
+
+            testSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            // This will now print the raw PostgreSQL error to the red box!
+            errorMessage = $"Diagnostic Error: {ex.InnerException?.Message ?? ex.Message}";
+        }
+    }
+
+    private async Task ExecuteInstall()
+    {
+        installing = true;
+        errorMessage = "";
+        StateHasChanged();
+        await Task.Delay(500);
+
+        try
+        {
+            ConfigService.Current.DbConnectionString = BuildConnectionString();
+            ConfigService.Save();
+
+            using var scope = ServiceProvider.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            await dbContext.Database.MigrateAsync();
+
+            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+            if (!await roleManager.RoleExistsAsync("Admin")) await roleManager.CreateAsync(new IdentityRole("Admin"));
+            if (!await roleManager.RoleExistsAsync("Sales")) await roleManager.CreateAsync(new IdentityRole("Sales"));
+
+            if (await userManager.FindByEmailAsync("admin@nexcel.me") == null)
+            {
+                var adminUser = new ApplicationUser { UserName = "admin@nexcel.me", Email = "admin@nexcel.me", FullName = "System Administrator", EmailConfirmed = true };
+                await userManager.CreateAsync(adminUser, "Admin123");
+                await userManager.AddToRoleAsync(adminUser, "Admin");
+            }
+
+            ConfigService.Current.IsSetupComplete = true;
+            ConfigService.Save();
+
+            await Task.Delay(1000);
+            NavManager.NavigateTo("/login", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Installation Failed: {ex.Message}";
+            installing = false;
+        }
+    }
+}

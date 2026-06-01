@@ -1,0 +1,305 @@
+﻿@page "/admin/management"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,DeptHead,DepartmentHead,Head,Manager")]
+@using Microsoft.AspNetCore.Authorization
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+@inject IQuoteService QuoteService
+@inject NavigationManager NavManager
+
+<PageTitle>Management Command Center</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-0"><i class="bi bi-speedometer2 text-primary me-2"></i>Department Overview</h2>
+        <p class="text-muted mb-0 mt-1">Leads due, quote follow-ups due, overdue exposure, team pipeline, and admin closure queue.</p>
+    </div>
+    <div>
+        <button class="btn btn-outline-primary shadow-sm" @onclick="LoadDashboardDataAsync">
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh Data
+        </button>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm border-0 border-start border-primary border-4 h-100">
+                <div class="card-body">
+                    <div class="text-muted fw-bold mb-1 text-uppercase small">Total Pipeline Value</div>
+                    <h4 class="mb-0 text-dark fw-bold">BHD @totalPipelineValue.ToString("N0")</h4>
+                    <small class="text-success fw-bold"><i class="bi bi-graph-up-arrow me-1"></i>Open Quotes</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm border-0 border-start border-success border-4 h-100">
+                <div class="card-body">
+                    <div class="text-muted fw-bold mb-1 text-uppercase small">Department Win Rate</div>
+                    <h4 class="mb-0 text-dark fw-bold">@departmentWinRate.ToString("0.0")%</h4>
+                    <small class="text-muted">Won vs Lost Quotes</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm border-0 border-start border-warning border-4 h-100">
+                <div class="card-body">
+                    <div class="text-muted fw-bold mb-1 text-uppercase small">Unassigned Leads</div>
+                    <h4 class="mb-0 text-dark fw-bold">@unassignedCount</h4>
+                    <small class="text-danger fw-bold"><i class="bi bi-exclamation-circle me-1"></i>Awaiting Routing</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm border-0 border-start border-info border-4 h-100">
+                <div class="card-body">
+                    <div class="text-muted fw-bold mb-1 text-uppercase small">Leads Due</div>
+                    <h4 class="mb-0 text-dark fw-bold">@leadDueCount</h4>
+                    <small class="text-muted">@leadOverdueCount overdue</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm border-0 border-start border-secondary border-4 h-100">
+                <div class="card-body">
+                    <div class="text-muted fw-bold mb-1 text-uppercase small">Quote Follow-ups Due</div>
+                    <h4 class="mb-0 text-dark fw-bold">@quoteDueCount</h4>
+                    <small class="text-muted">@quoteOverdueCount overdue</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 col-xl-2">
+            <div class="card shadow-sm border-0 border-start border-danger border-4 h-100">
+                <div class="card-body">
+                    <div class="text-muted fw-bold mb-1 text-uppercase small">Total Overdue</div>
+                    <h4 class="mb-0 text-dark fw-bold">@overdueTasksCount</h4>
+                    <small class="text-muted">Leads + Quotes overdue</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 col-xl-3">
+            <div class="card shadow-sm border-0 border-start border-dark border-4 h-100">
+                <div class="card-body">
+                    <div class="text-muted fw-bold mb-1 text-uppercase small">Pending Lead Closures</div>
+                    <h4 class="mb-0 text-dark fw-bold">@pendingLeadClosureCount</h4>
+                    <small class="text-muted">Submitted by reps, waiting for admin</small>
+                    <div class="mt-3">
+                        <button class="btn btn-sm btn-dark fw-bold" @onclick="OpenLeadClosureQueue">
+                            Open Queue
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h5 class="fw-bold mb-3"><i class="bi bi-people-fill text-secondary me-2"></i>Sales Representatives</h5>
+
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4 mb-5">
+        @foreach (var stat in teamStats.OrderByDescending(t => t.ActiveDeals))
+        {
+            var winRateColor = stat.WinRate > 40 ? "text-success" : (stat.WinRate > 20 ? "text-warning" : "text-danger");
+
+            <div class="col">
+                <div class="card h-100 shadow-sm border-0">
+                    <div class="card-header bg-white border-bottom-0 pt-4 pb-0">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 50px; height: 50px;">
+                                <i class="bi bi-person-fill fs-4"></i>
+                            </div>
+                            <div>
+                                <h5 class="mb-0 fw-bold">@stat.RepName</h5>
+                                <small class="text-muted">@stat.ActiveDeals active records</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-body">
+                        <div class="row text-center mb-3">
+                            <div class="col-4 border-end">
+                                <h5 class="mb-0 fw-bold text-dark">@stat.WonDeals</h5>
+                                <small class="text-muted" style="font-size: 0.75rem;">Won</small>
+                            </div>
+                            <div class="col-4 border-end">
+                                <h5 class="mb-0 fw-bold @winRateColor">@stat.WinRate.ToString("0")%</h5>
+                                <small class="text-muted" style="font-size: 0.75rem;">Win Rate</small>
+                            </div>
+                            <div class="col-4">
+                                @if (stat.OverdueTasks > 0)
+                                {
+                                    <h5 class="mb-0 fw-bold text-danger">@stat.OverdueTasks</h5>
+                                }
+                                else
+                                {
+                                    <h5 class="mb-0 fw-bold text-success"><i class="bi bi-check2"></i></h5>
+                                }
+                                <small class="text-muted" style="font-size: 0.75rem;">Overdue</small>
+                            </div>
+                        </div>
+
+                        <div class="bg-light p-2 rounded text-center mb-3">
+                            <small class="text-muted text-uppercase fw-bold" style="font-size: 0.7rem;">Pipeline Value</small>
+                            <h5 class="mb-0 text-primary fw-bold">BHD @stat.PipelineValue.ToString("N0")</h5>
+                        </div>
+
+                        <div class="small text-muted mb-3">
+                            <div><b>Leads Due:</b> @stat.LeadsDue</div>
+                            <div><b>Quotes Due:</b> @stat.QuotesDue</div>
+                            <div><b>Stale Records:</b> @stat.StaleDeals</div>
+                        </div>
+
+                        <button class="btn btn-outline-primary w-100 fw-bold" @onclick="() => NavigateToRepDashboard(stat.UserId)">
+                            Deep Dive <i class="bi bi-arrow-right-short"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+
+    private decimal totalPipelineValue = 0;
+    private double departmentWinRate = 0;
+    private int unassignedCount = 0;
+    private int overdueTasksCount = 0;
+
+    private int leadDueCount = 0;
+    private int leadOverdueCount = 0;
+    private int quoteDueCount = 0;
+    private int quoteOverdueCount = 0;
+    private int pendingLeadClosureCount = 0;
+
+    private List<RepStat> teamStats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardDataAsync();
+    }
+
+    private async Task LoadDashboardDataAsync()
+    {
+        isLoading = true;
+
+        var allUsersRaw = await QuoteService.GetSystemUsersAsync();
+        var allUsers = allUsersRaw.Where(u => u.IsActive).ToList();
+
+        var allQuotes = await QuoteService.GetAllQuotesAsync(null, true);
+        var now = DateTime.UtcNow;
+
+        bool IsClosed(Quote q) =>
+            q.Status == QuoteStatus.Won ||
+            q.Status == QuoteStatus.Lost ||
+            q.Status == QuoteStatus.Cancelled ||
+            q.Status == QuoteStatus.LeadClosed ||
+            q.Status == QuoteStatus.Merged;
+
+        var activeRecords = allQuotes
+            .Where(q => !q.IsDeleteRequested)
+            .Where(q => !IsClosed(q))
+            .ToList();
+
+        var activeQuotes = activeRecords
+            .Where(q => q.RecordType == QuoteRecordType.OutgoingQuote)
+            .ToList();
+
+        var activeLeads = activeRecords
+            .Where(q => q.RecordType == QuoteRecordType.Lead)
+            .ToList();
+
+        pendingLeadClosureCount = allQuotes.Count(q =>
+            q.RecordType == QuoteRecordType.Lead &&
+            !q.IsDeleteRequested &&
+            q.Status == QuoteStatus.LeadRepCompleted);
+
+        totalPipelineValue = activeQuotes.Sum(q => q.QuoteValue ?? 0);
+        unassignedCount = activeLeads.Count(q => string.IsNullOrWhiteSpace(q.OwnerId));
+
+        leadDueCount = activeLeads.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= now);
+        leadOverdueCount = activeLeads.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < now);
+
+        quoteDueCount = activeQuotes.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= now);
+        quoteOverdueCount = activeQuotes.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < now);
+
+        overdueTasksCount = activeRecords.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < now);
+
+        int totalWon = allQuotes.Count(q => q.RecordType == QuoteRecordType.OutgoingQuote && q.Status == QuoteStatus.Won);
+        int totalLost = allQuotes.Count(q => q.RecordType == QuoteRecordType.OutgoingQuote && q.Status == QuoteStatus.Lost);
+        int totalDecided = totalWon + totalLost;
+
+        departmentWinRate = totalDecided > 0 ? ((double)totalWon / totalDecided) * 100 : 0;
+
+        teamStats.Clear();
+        var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
+
+        foreach (var user in allUsers)
+        {
+            var userRecords = allQuotes
+                .Where(q => q.OwnerId == user.Id && !q.IsDeleteRequested)
+                .ToList();
+
+            var userActive = userRecords.Where(q => !IsClosed(q) && q.Status != QuoteStatus.LeadRepCompleted).ToList();
+            var userQuotes = userRecords.Where(q => q.RecordType == QuoteRecordType.OutgoingQuote).ToList();
+            var userOpenQuotes = userQuotes.Where(q => !IsClosed(q)).ToList();
+            var userOpenLeads = userRecords.Where(q => q.RecordType == QuoteRecordType.Lead && !IsClosed(q) && q.Status != QuoteStatus.LeadRepCompleted).ToList();
+
+            int uWon = userQuotes.Count(q => q.Status == QuoteStatus.Won);
+            int uLost = userQuotes.Count(q => q.Status == QuoteStatus.Lost);
+            int uDecided = uWon + uLost;
+
+            teamStats.Add(new RepStat
+            {
+                UserId = user.Id,
+                RepName = user.FullName,
+                ActiveDeals = userActive.Count,
+                WonDeals = uWon,
+                WinRate = uDecided > 0 ? ((double)uWon / uDecided) * 100 : 0,
+                PipelineValue = userOpenQuotes.Sum(q => q.QuoteValue ?? 0),
+                OverdueTasks = userActive.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < now),
+                LeadsDue = userOpenLeads.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= now),
+                QuotesDue = userOpenQuotes.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= now),
+                StaleDeals = userActive.Count(q => q.CreatedAt < thirtyDaysAgo)
+            });
+        }
+
+        isLoading = false;
+    }
+
+    private void NavigateToRepDashboard(string userId)
+    {
+        NavManager.NavigateTo($"/admin/management/rep/{userId}");
+    }
+
+    private void OpenLeadClosureQueue()
+    {
+        NavManager.NavigateTo("/admin/lead-closures");
+    }
+
+    private class RepStat
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string RepName { get; set; } = string.Empty;
+        public int ActiveDeals { get; set; }
+        public int WonDeals { get; set; }
+        public double WinRate { get; set; }
+        public decimal PipelineValue { get; set; }
+        public int OverdueTasks { get; set; }
+        public int LeadsDue { get; set; }
+        public int QuotesDue { get; set; }
+        public int StaleDeals { get; set; }
+    }
+}

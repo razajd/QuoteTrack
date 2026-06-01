@@ -1,0 +1,144 @@
+﻿@page "/admin/management/roi"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@inject IQuoteService QuoteService
+
+<PageTitle>Lead Source ROI</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-pie-chart text-warning me-2"></i>Lead Source ROI</h2>
+    <a href="/admin/management" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i> Back to Overview</a>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center mt-5">
+        <div class="spinner-border text-warning" role="status"></div>
+        <p class="mt-2 text-muted">Analyzing channel conversions...</p>
+    </div>
+}
+else
+{
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card shadow-sm border-0 border-start border-warning border-4 bg-warning bg-opacity-10">
+                <div class="card-body p-4 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-warning text-dark fw-bold text-uppercase mb-1">Most Profitable Channel</h6>
+                        <h2 class="mb-0 text-dark fw-bold">
+                            @(topChannel?.SourceName ?? "Not Enough Data")
+                        </h2>
+                        @if (topChannel != null)
+                        {
+                            <small class="text-muted fw-bold">Driving BHD @topChannel.RevenueWon.ToString("N3") in booked revenue.</small>
+                        }
+                    </div>
+                    <i class="bi bi-trophy-fill fs-1 text-warning opacity-75"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-dark text-white fw-bold py-3">
+            <i class="bi bi-funnel-fill text-warning me-2"></i> Conversion Metrics by Source
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped mb-0 text-center align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start ps-3">Lead Source Channel</th>
+                            <th title="Total leads entered into the pipeline">Volume (Total Quotes)</th>
+                            <th class="text-success">Deals Won</th>
+                            <th class="text-danger">Deals Lost</th>
+                            <th title="Percentage of quotes won from this source" class="fw-bold">Channel Win Rate</th>
+                            <th class="text-success fw-bold text-end pe-3">Revenue Generated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var source in sourceMetrics)
+                        {
+                            <tr>
+                                <td class="text-start ps-3 fw-bold text-primary">@source.SourceName</td>
+                                <td>@source.TotalQuotes</td>
+                                <td class="text-success fw-bold">@source.QuotesWon</td>
+                                <td class="text-danger">@source.QuotesLost</td>
+                                <td>
+                                    <span class="badge @(source.WinRate > 40 ? "bg-success" : source.WinRate > 15 ? "bg-warning text-dark" : "bg-danger")">
+                                        @source.WinRate%
+                                    </span>
+                                </td>
+                                <td class="text-success fw-bold text-end pe-3">BHD @source.RevenueWon.ToString("N3")</td>
+                            </tr>
+                        }
+                        @if (!sourceMetrics.Any())
+                        {
+                            <tr><td colspan="6" class="text-muted py-4">No lead sources have been tracked yet. Update your quotes to see data here!</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+
+    private class SourceMetric
+    {
+        public string SourceName { get; set; } = string.Empty;
+        public int TotalQuotes { get; set; }
+        public int QuotesWon { get; set; }
+        public int QuotesLost { get; set; }
+        public decimal RevenueWon { get; set; }
+        public decimal WinRate => TotalQuotes == 0 ? 0 : Math.Round((decimal)QuotesWon / TotalQuotes * 100, 1);
+    }
+
+    private List<SourceMetric> sourceMetrics = new();
+    private SourceMetric? topChannel;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Fetch absolutely everything (Admin Override)
+        var allQuotes = await QuoteService.GetAllQuotesAsync(null, true);
+
+        // Group quotes by their LeadSource string. If empty, label it "Unattributed/Organic"
+        var groupedSources = allQuotes.GroupBy(q =>
+            string.IsNullOrWhiteSpace(q.LeadSource) ? "Unattributed / Organic" : q.LeadSource.Trim()
+        );
+
+        sourceMetrics.Clear();
+
+        foreach (var group in groupedSources)
+        {
+            var sourceName = group.Key;
+            var quotes = group.ToList();
+
+            var won = quotes.Where(q => q.Status.ToString().Equals("Won", StringComparison.OrdinalIgnoreCase)).ToList();
+            var lost = quotes.Count(q => q.Status.ToString().Equals("Lost", StringComparison.OrdinalIgnoreCase));
+
+            sourceMetrics.Add(new SourceMetric
+            {
+                SourceName = sourceName,
+                TotalQuotes = quotes.Count,
+                QuotesWon = won.Count,
+                QuotesLost = lost,
+                RevenueWon = won.Sum(q => q.QuoteValue ?? 0)
+            });
+        }
+
+        // Sort by revenue to easily find the top channel
+        sourceMetrics = sourceMetrics.OrderByDescending(s => s.RevenueWon).ToList();
+
+        // Exclude 'Unattributed' from winning the top channel spot if possible
+        topChannel = sourceMetrics.FirstOrDefault(s => s.RevenueWon > 0 && s.SourceName != "Unattributed / Organic")
+                  ?? sourceMetrics.FirstOrDefault(s => s.RevenueWon > 0);
+
+        isLoading = false;
+    }
+}

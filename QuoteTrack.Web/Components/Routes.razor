@@ -1,0 +1,14 @@
+﻿<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <div class="container mt-5 text-center">
+                    <h2 class="text-danger fw-bold">Access Denied</h2>
+                    <p class="lead text-muted">You must be logged in to access the QuoteTrack system.</p>
+                    <a href="/login" class="btn btn-primary btn-lg mt-3">Click here to Login</a>
+                </div>
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

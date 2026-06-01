@@ -1,0 +1,160 @@
+﻿@* QuoteTrack.Web/Components/Pages/Profile.razor *@
+@page "/profile"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Domain.Entities
+@using Microsoft.AspNetCore.Components.Authorization
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavManager
+
+<PageTitle>My Profile - QuoteTrack</PageTitle>
+
+<div class="container mt-5 mb-5" style="max-width: 600px;">
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center border-bottom border-primary border-3">
+            <h4 class="mb-0 fw-bold"><i class="bi bi-person-badge-fill text-primary me-2"></i>My Profile</h4>
+            <a href="/" class="btn btn-sm btn-outline-secondary">Back</a>
+        </div>
+        <div class="card-body p-4 bg-light">
+
+            @if (isLoading)
+            {
+                <div class="text-center my-4"><div class="spinner-border text-primary"></div></div>
+            }
+            else if (currentUser != null)
+            {
+                <div class="mb-4 text-center">
+                    <div class="bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center shadow-sm" style="width: 80px; height: 80px; font-size: 32px; font-weight: bold;">
+                        @currentUser.FullName.Substring(0, 1).ToUpper()
+                    </div>
+                    <h4 class="mt-3 fw-bold mb-0">@currentUser.FullName</h4>
+                    <p class="text-muted mb-0">@currentUser.Email</p>
+                    <div class="mt-2">
+                        <span class="badge bg-dark bg-opacity-10 text-dark border border-secondary">@(isAdmin ? "System Administrator" : "Sales Representative")</span>
+                    </div>
+                </div>
+
+                <hr class="my-4" />
+
+                <h5 class="fw-bold mb-3">Change Password</h5>
+
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger fw-bold small"><i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage</div>
+                }
+                @if (showSuccess)
+                {
+                    <div class="alert alert-success fw-bold small"><i class="bi bi-check-circle-fill me-2"></i>Password updated successfully!</div>
+                }
+
+                <EditForm Model="passwordModel" OnValidSubmit="ChangePassword" FormName="ChangePasswordForm">
+                    <DataAnnotationsValidator />
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-muted">Current Password</label>
+                        <InputText type="password" class="form-control" @bind-Value="passwordModel.CurrentPassword" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-muted">New Password</label>
+                        <InputText type="password" class="form-control" @bind-Value="passwordModel.NewPassword" />
+                        <small class="text-muted" style="font-size: 11px;">Must be at least 6 characters long.</small>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted">Confirm New Password</label>
+                        <InputText type="password" class="form-control" @bind-Value="passwordModel.ConfirmPassword" />
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 fw-bold py-2"><i class="bi bi-shield-lock-fill me-2"></i>Update Password</button>
+                </EditForm>
+            }
+        </div>
+    </div>
+
+    @if (!isLoading && currentUser != null)
+    {
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white border-bottom fw-bold py-3">
+                <i class="bi bi-microsoft text-primary me-2"></i> External Integrations
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center p-3 border rounded bg-light">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-windows fs-2 text-primary me-3"></i>
+                        <div>
+                            <h6 class="mb-0 fw-bold">Microsoft 365 (Office)</h6>
+                            <small class="text-muted">Sync your calendar and send Teams meetings directly from quotes.</small>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-outline-primary fw-bold" disabled title="Pending IT configuration">
+                        <i class="bi bi-link-45deg me-1"></i> Connect Account
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private ApplicationUser? currentUser;
+    private bool isAdmin = false;
+
+    private PasswordChangeModel passwordModel = new();
+    private string errorMessage = "";
+    private bool showSuccess = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity != null && user.Identity.IsAuthenticated)
+        {
+            currentUser = await UserManager.GetUserAsync(user);
+            isAdmin = user.IsInRole("Admin");
+        }
+        isLoading = false;
+    }
+
+    private async Task ChangePassword()
+    {
+        errorMessage = "";
+        showSuccess = false;
+
+        if (string.IsNullOrWhiteSpace(passwordModel.CurrentPassword) || string.IsNullOrWhiteSpace(passwordModel.NewPassword))
+        {
+            errorMessage = "Please fill in all password fields.";
+            return;
+        }
+
+        if (passwordModel.NewPassword != passwordModel.ConfirmPassword)
+        {
+            errorMessage = "The new password and confirmation password do not match.";
+            return;
+        }
+
+        if (currentUser != null)
+        {
+            var result = await UserManager.ChangePasswordAsync(currentUser, passwordModel.CurrentPassword, passwordModel.NewPassword);
+
+            if (result.Succeeded)
+            {
+                showSuccess = true;
+                passwordModel = new PasswordChangeModel(); // Clear the form
+            }
+            else
+            {
+                errorMessage = string.Join(" ", result.Errors.Select(e => e.Description));
+            }
+        }
+    }
+
+    public class PasswordChangeModel
+    {
+        public string CurrentPassword { get; set; } = "";
+        public string NewPassword { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

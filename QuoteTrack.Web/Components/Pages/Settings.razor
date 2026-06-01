@@ -1,0 +1,634 @@
+﻿@* QuoteTrack.Web/Components/Pages/Settings.razor *@
+@page "/settings"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using MailKit.Net.Imap
+@using MailKit.Net.Smtp
+@using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Domain.Entities
+@inject QuoteTrack.Web.Services.AppConfigService ConfigService
+@inject NavigationManager NavManager
+@inject IJSRuntime JS
+@inject UserManager<ApplicationUser> UserManager
+
+<PageTitle>System Settings - QuoteTrack</PageTitle>
+
+<div class="container mt-4 mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-gear-fill text-primary me-2"></i>System Settings</h2>
+        <button class="btn btn-primary fw-bold px-4 shadow-sm" @onclick="SaveConfig">
+            <i class="bi bi-save-fill me-2"></i>Save All Changes
+        </button>
+    </div>
+
+    @if (showSuccessMessage)
+    {
+        <div class="alert alert-success fw-bold shadow-sm">
+            <i class="bi bi-check-circle-fill me-2"></i>Settings saved successfully! Refreshing...
+        </div>
+    }
+
+    <ul class="nav nav-tabs mb-4 border-bottom-0">
+        <li class="nav-item" @onclick='() => activeTab = "general"'>
+            <a class="nav-link @(activeTab == "general" ? "active fw-bold text-primary border-bottom-0 shadow-sm rounded-top" : "text-muted")" style="cursor:pointer;">
+                <i class="bi bi-palette-fill me-2"></i>Brand & General
+            </a>
+        </li>
+        <li class="nav-item" @onclick='() => activeTab = "email"'>
+            <a class="nav-link @(activeTab == "email" ? "active fw-bold text-primary border-bottom-0 shadow-sm rounded-top" : "text-muted")" style="cursor:pointer;">
+                <i class="bi bi-envelope-fill me-2"></i>Email Mailboxes
+            </a>
+        </li>
+        <li class="nav-item" @onclick='() => activeTab = "workflow"'>
+            <a class="nav-link @(activeTab == "workflow" ? "active fw-bold text-primary border-bottom-0 shadow-sm rounded-top" : "text-muted")" style="cursor:pointer;">
+                <i class="bi bi-diagram-3-fill me-2"></i>Workflow Routing
+            </a>
+        </li>
+        <li class="nav-item" @onclick='() => activeTab = "automation"'>
+            <a class="nav-link @(activeTab == "automation" ? "active fw-bold text-primary border-bottom-0 shadow-sm rounded-top" : "text-muted")" style="cursor:pointer;">
+                <i class="bi bi-robot me-2"></i>Automation
+            </a>
+        </li>
+        <li class="nav-item" @onclick='() => activeTab = "data"'>
+            <a class="nav-link @(activeTab == "data" ? "active fw-bold text-primary border-bottom-0 shadow-sm rounded-top" : "text-muted")" style="cursor:pointer;">
+                <i class="bi bi-database-fill-down me-2"></i>Data Backup
+            </a>
+        </li>
+    </ul>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-4 bg-white">
+
+            @if (activeTab == "general")
+            {
+                <div class="row g-4">
+                    <div class="col-lg-5 border-end pe-lg-4">
+                        <h5 class="fw-bold mb-3">Application Identity</h5>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Application Title</label>
+                            <input type="text" class="form-control" @bind="ConfigService.Current.AppTitle">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Custom Logo URL (Optional)</label>
+                            <input type="text" class="form-control" @bind="ConfigService.Current.LogoUrl" placeholder="https://example.com/logo.png">
+                            <small class="text-muted">Leave blank to display the application title as text.</small>
+                        </div>
+
+                        <h5 class="fw-bold mb-3 mt-4">Typography</h5>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Base Font Family</label>
+                            <input type="text" class="form-control" @bind="ConfigService.Current.FontFamily" placeholder="Segoe UI, Tahoma, sans-serif">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Heading Font Family</label>
+                            <input type="text" class="form-control" @bind="ConfigService.Current.HeadingFontFamily" placeholder="Century Gothic, Segoe UI, sans-serif">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Card Radius</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" min="6" max="40" @bind="ConfigService.Current.CardRadiusPx">
+                                <span class="input-group-text">px</span>
+                            </div>
+                        </div>
+
+                        <h5 class="fw-bold mb-3 mt-4 text-danger">System Alerts</h5>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold"><i class="bi bi-shield-lock-fill me-2"></i>System Admin Email</label>
+                            <input type="text" class="form-control border-danger" @bind="ConfigService.Current.SystemAdminEmail">
+                            <small class="text-muted">Receives critical alerts and can be used as the default digest recipient.</small>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-7 ps-lg-4">
+                        <h5 class="fw-bold mb-3">Theme Colors</h5>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Primary Brand Color</label>
+                                <div class="d-flex align-items-center">
+                                    <input type="color" class="form-control form-control-color me-3 border-0 shadow-sm" @bind="ConfigService.Current.PrimaryColor">
+                                    <input type="text" class="form-control fw-bold text-muted" @bind="ConfigService.Current.PrimaryColor">
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Navigation Bar Color</label>
+                                <div class="d-flex align-items-center">
+                                    <input type="color" class="form-control form-control-color me-3 border-0 shadow-sm" @bind="ConfigService.Current.NavBackgroundColor">
+                                    <input type="text" class="form-control fw-bold text-muted" @bind="ConfigService.Current.NavBackgroundColor">
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">App Background Color</label>
+                                <div class="d-flex align-items-center">
+                                    <input type="color" class="form-control form-control-color me-3 border-0 shadow-sm" @bind="ConfigService.Current.BackgroundColor">
+                                    <input type="text" class="form-control fw-bold text-muted" @bind="ConfigService.Current.BackgroundColor">
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Surface / Card Color</label>
+                                <div class="d-flex align-items-center">
+                                    <input type="color" class="form-control form-control-color me-3 border-0 shadow-sm" @bind="ConfigService.Current.SurfaceColor">
+                                    <input type="text" class="form-control fw-bold text-muted" @bind="ConfigService.Current.SurfaceColor">
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Alternate Surface Color</label>
+                                <div class="d-flex align-items-center">
+                                    <input type="color" class="form-control form-control-color me-3 border-0 shadow-sm" @bind="ConfigService.Current.SurfaceAltColor">
+                                    <input type="text" class="form-control fw-bold text-muted" @bind="ConfigService.Current.SurfaceAltColor">
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Border Color</label>
+                                <div class="d-flex align-items-center">
+                                    <input type="color" class="form-control form-control-color me-3 border-0 shadow-sm" @bind="ConfigService.Current.BorderColor">
+                                    <input type="text" class="form-control fw-bold text-muted" @bind="ConfigService.Current.BorderColor">
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Text Color</label>
+                                <div class="d-flex align-items-center">
+                                    <input type="color" class="form-control form-control-color me-3 border-0 shadow-sm" @bind="ConfigService.Current.TextColor">
+                                    <input type="text" class="form-control fw-bold text-muted" @bind="ConfigService.Current.TextColor">
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Muted Text Color</label>
+                                <div class="d-flex align-items-center">
+                                    <input type="color" class="form-control form-control-color me-3 border-0 shadow-sm" @bind="ConfigService.Current.MutedTextColor">
+                                    <input type="text" class="form-control fw-bold text-muted" @bind="ConfigService.Current.MutedTextColor">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card border-0 shadow-sm mt-4" style="background:@ConfigService.Current.SurfaceColor; border:1px solid @ConfigService.Current.BorderColor !important; border-radius:@(ConfigService.Current.CardRadiusPx)px;">
+                            <div class="card-body">
+                                <div class="small text-uppercase fw-bold mb-2" style="color:@ConfigService.Current.MutedTextColor;">Live theme preview</div>
+                                <div class="d-flex justify-content-between align-items-center rounded p-3 mb-3" style="background:@ConfigService.Current.NavBackgroundColor; color:#fff;">
+                                    <div class="fw-bold" style="font-family:@ConfigService.Current.HeadingFontFamily;">@ConfigService.Current.AppTitle</div>
+                                    <span class="badge text-bg-light">Navigation</span>
+                                </div>
+
+                                <div class="rounded p-3" style="background:@ConfigService.Current.BackgroundColor; border:1px solid @ConfigService.Current.BorderColor;">
+                                    <div class="rounded p-3 shadow-sm" style="background:@ConfigService.Current.SurfaceColor; border:1px solid @ConfigService.Current.BorderColor;">
+                                        <div class="fw-bold mb-1" style="font-family:@ConfigService.Current.HeadingFontFamily; color:@ConfigService.Current.TextColor;">Dashboard Card Title</div>
+                                        <div class="small mb-2" style="color:@ConfigService.Current.MutedTextColor;">Sample body text using your selected theme.</div>
+                                        <button class="btn btn-sm fw-bold text-white" style="background:@ConfigService.Current.PrimaryColor; border-color:@ConfigService.Current.PrimaryColor;">Primary Action</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (activeTab == "email")
+            {
+                <div class="alert alert-info small shadow-sm">
+                    <i class="bi bi-info-circle-fill me-2"></i>
+                    Configure multiple mailboxes. Use the <strong>Test Connection</strong> buttons to verify credentials before saving.
+                </div>
+
+                <h5 class="fw-bold mb-3 text-primary mt-4">Incoming Mailboxes (IMAP)</h5>
+                @foreach (var imap in ConfigService.Current.ImapAccounts)
+                {
+                    <div class="card bg-light border-0 mb-3 shadow-sm">
+                        <div class="card-body">
+                            <div class="row align-items-center mb-2">
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-muted">Host</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="imap.Host" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="small fw-bold text-muted">Port</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="imap.Port" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-muted">Username (Email)</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="imap.Username" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-muted">Password</label>
+                                    <input type="password" class="form-control form-control-sm" @bind="imap.Password" />
+                                </div>
+                                <div class="col-md-1 text-center pt-4">
+                                    <button class="btn btn-sm btn-outline-danger" title="Remove Account" @onclick="() => ConfigService.Current.ImapAccounts.Remove(imap)">
+                                        <i class="bi bi-trash-fill"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="row align-items-center border-top pt-2 mt-2">
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-muted">Folder to Monitor</label>
+                                    <input type="text" class="form-control form-control-sm border-primary" @bind="imap.TargetFolder" title="Default is INBOX" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-muted">After Processing Action</label>
+                                    <select class="form-select form-select-sm border-primary" @bind="imap.PostProcessAction">
+                                        <option value="MarkRead">Mark as Read</option>
+                                        <option value="Delete">Delete Email permanently</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="small fw-bold text-muted">Mailbox Role</label>
+                                    <select class="form-select form-select-sm border-primary text-primary fw-bold" @bind="imap.AccountRole">
+                                        <option value="Lead">Lead Ingestion</option>
+                                        <option value="Quote">Quote Ingestion</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="small fw-bold text-muted d-block">Options</label>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" @bind="imap.UseSsl">
+                                        <label class="form-check-label small">SSL</label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" @bind="imap.IsActive">
+                                        <label class="form-check-label small">Active</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-2 text-end pt-3">
+                                    <button class="btn btn-sm btn-secondary fw-bold" @onclick="() => TestImapConnection(imap)">
+                                        @if (isTesting == imap)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                            <span>Testing...</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-wifi me-1"></i>
+                                            <span>Test Connection</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (testResults.ContainsKey(imap))
+                            {
+                                <div class="small mt-2 @(testResults[imap].Contains("Success") ? "text-success fw-bold" : "text-danger fw-bold")">@testResults[imap]</div>
+                            }
+                        </div>
+                    </div>
+                }
+                <button class="btn btn-sm btn-outline-primary fw-bold" @onclick="AddImapAccount">
+                    <i class="bi bi-plus-circle-fill me-2"></i>Add Incoming Mailbox
+                </button>
+
+                <hr class="my-5" />
+
+                <h5 class="fw-bold mb-3 text-success">Outgoing Mailboxes (SMTP)</h5>
+                @foreach (var smtp in ConfigService.Current.SmtpAccounts)
+                {
+                    <div class="card bg-light border-0 mb-3 shadow-sm">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-muted">Host</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="smtp.Host" />
+                                </div>
+                                <div class="col-md-1">
+                                    <label class="small fw-bold text-muted">Port</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="smtp.Port" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="small fw-bold text-muted">Sender Name</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="smtp.SenderName" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="small fw-bold text-muted">Sender Email</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="smtp.SenderEmail" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="small fw-bold text-muted">Username (Email)</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="smtp.Username" />
+                                </div>
+                                <div class="col-md-1">
+                                    <label class="small fw-bold text-muted">Password</label>
+                                    <input type="password" class="form-control form-control-sm" @bind="smtp.Password" />
+                                </div>
+                                <div class="col-md-1 text-center pt-4">
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfigService.Current.SmtpAccounts.Remove(smtp)">
+                                        <i class="bi bi-trash-fill"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="row align-items-center border-top pt-2 mt-2">
+                                <div class="col-md-4">
+                                    <label class="small fw-bold text-muted d-block">Options</label>
+                                    <div class="form-check form-switch d-inline-block me-3">
+                                        <input class="form-check-input" type="checkbox" @bind="smtp.UseSsl">
+                                        <label class="form-check-label small">SSL</label>
+                                    </div>
+                                    <div class="form-check form-switch d-inline-block">
+                                        <input class="form-check-input" type="checkbox" @bind="smtp.IsActive">
+                                        <label class="form-check-label small">Active Sender</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-8 text-end">
+                                    <button class="btn btn-sm btn-secondary fw-bold" @onclick="() => TestSmtpConnection(smtp)">
+                                        @if (isTesting == smtp)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                            <span>Testing...</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-wifi me-1"></i>
+                                            <span>Test Connection</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (testResults.ContainsKey(smtp))
+                            {
+                                <div class="small mt-2 @(testResults[smtp].Contains("Success") ? "text-success fw-bold" : "text-danger fw-bold")">@testResults[smtp]</div>
+                            }
+                        </div>
+                    </div>
+                }
+                <button class="btn btn-sm btn-outline-success fw-bold" @onclick="AddSmtpAccount">
+                    <i class="bi bi-plus-circle-fill me-2"></i>Add Outgoing Mailbox
+                </button>
+            }
+
+            @if (activeTab == "workflow")
+            {
+                <div class="col-md-8">
+                    <h5 class="fw-bold mb-3">Implementation Handoff Routing</h5>
+                    <p class="text-muted small mb-4">
+                        When a quote is marked as <strong>WON</strong>, an automated notification is instantly sent to these addresses.
+                        <br /><strong>Note: You can use a comma to send to multiple people</strong>
+                    </p>
+
+                    <div class="card bg-light border-0 shadow-sm p-4">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-primary">Presales / Design Contact</label>
+                                <input type="text" class="form-control" @bind="ConfigService.Current.PresalesEmail">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-primary">Implementation Supervisor</label>
+                                <input type="text" class="form-control" @bind="ConfigService.Current.ImplementationEmail">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-primary">Projects Coordinator (Schedules)</label>
+                                <input type="text" class="form-control" @bind="ConfigService.Current.CoordinatorEmail">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-primary">Material Arrangement / Procurement</label>
+                                <input type="text" class="form-control" @bind="ConfigService.Current.MaterialsEmail">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (activeTab == "automation")
+            {
+                <div class="row g-4">
+                    <div class="col-lg-6">
+                        <h5 class="fw-bold mb-3">Background Workers</h5>
+
+                        <div class="card bg-light border-0 shadow-sm p-4 mb-4">
+                            <label class="form-label fw-bold text-primary">Default Lead Routing</label>
+                            <p class="small text-muted mb-3">Who should automatically receive new incoming quotes from unrecognized email addresses?</p>
+                            <select class="form-select border-primary" @bind="ConfigService.Current.DefaultLeadOwnerId">
+                                <option value="">-- Leave Unassigned (Admin Pool) --</option>
+                                @foreach (var user in systemUsers)
+                                {
+                                    <option value="@user.Id">@user.FullName</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="card bg-light border-0 shadow-sm p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label fw-bold text-primary mb-0">Sales Reminder Emails</label>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" @bind="ConfigService.Current.EnableSalesReminderEmails">
+                                </div>
+                            </div>
+
+                            <p class="small text-muted mb-3">Send automatic reminder emails to sales reps about overdue or upcoming actions.</p>
+
+                            <div class="input-group mb-3">
+                                <span class="input-group-text bg-white">Every</span>
+                                <input type="number" class="form-control border-start-0 border-end-0 text-center"
+                                       @bind="ConfigService.Current.ReminderIntervalHours" min="1" max="48">
+                                <span class="input-group-text bg-white">Hours</span>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold small text-muted">Lookahead Window</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" @bind="ConfigService.Current.ReminderLookaheadHours" min="1" max="168">
+                                    <span class="input-group-text">Hours Ahead</span>
+                                </div>
+                                <small class="text-muted">Useful when you want reps warned before items become overdue.</small>
+                            </div>
+
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" @bind="ConfigService.Current.ReminderSendOnlyOverdue">
+                                <label class="form-check-label">Send only overdue items</label>
+                            </div>
+
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" @bind="ConfigService.Current.ReminderIncludeDueToday">
+                                <label class="form-check-label">Include items due today</label>
+                            </div>
+
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="ConfigService.Current.ReminderAlsoSendToAdmin">
+                                <label class="form-check-label">Send a copy to System Admin</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <h5 class="fw-bold mb-3">Daily Admin Digest</h5>
+
+                        <div class="card bg-light border-0 shadow-sm p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label fw-bold text-primary mb-0">Enable Daily Digest</label>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" @bind="ConfigService.Current.EnableDailyAdminDigest">
+                                </div>
+                            </div>
+
+                            <p class="small text-muted mb-3">
+                                Send a morning summary email showing leads ingested, quotes ingested, logins, and due / overdue workload.
+                            </p>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold small text-muted">Recipient Email</label>
+                                <input type="text" class="form-control" @bind="ConfigService.Current.DailyDigestRecipientEmail" placeholder="Leave blank to use System Admin Email">
+                                <small class="text-muted">If blank, the system should fall back to <b>System Admin Email</b>.</small>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold small text-muted">Send Time (Local Server / Bahrain)</label>
+                                <input type="time" class="form-control" @bind="DailyDigestTimeValue">
+                            </div>
+
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" @bind="ConfigService.Current.DailyDigestIncludeIngestion">
+                                <label class="form-check-label">Include ingested leads and quotes</label>
+                            </div>
+
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" @bind="ConfigService.Current.DailyDigestIncludeLogins">
+                                <label class="form-check-label">Include user login summary</label>
+                            </div>
+
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="ConfigService.Current.DailyDigestIncludeDueSummary">
+                                <label class="form-check-label">Include due / overdue snapshot</label>
+                            </div>
+
+                            <div class="mt-3 small text-muted">
+                                Recommended sender: keep one active SMTP account configured under <b>Email Mailboxes</b>.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (activeTab == "data")
+            {
+                <div class="col-md-6">
+                    <h5 class="fw-bold mb-3">System Snapshot</h5>
+                    <div class="card bg-light border-0 shadow-sm p-4 text-center">
+                        <i class="bi bi-cloud-arrow-down-fill text-primary" style="font-size: 3rem;"></i>
+                        <h6 class="fw-bold mt-3">1-Click JSON Backup</h6>
+                        <p class="text-muted small">Download a complete snapshot of all users, quotes, and activity history.</p>
+                        <button class="btn btn-success fw-bold" @onclick="DownloadBackup">
+                            <i class="bi bi-download me-2"></i>Generate & Download Backup
+                        </button>
+                    </div>
+                </div>
+            }
+
+        </div>
+    </div>
+</div>
+
+<script>
+    window.downloadFileFromUrl = function (url, fileName) {
+        const anchorElement = document.createElement('a');
+        anchorElement.href = url;
+        anchorElement.download = fileName ?? '';
+        anchorElement.click();
+        anchorElement.remove();
+    }
+</script>
+
+@code {
+    private string activeTab = "automation";
+    private bool showSuccessMessage = false;
+    private List<ApplicationUser> systemUsers = new();
+
+    private object? isTesting = null;
+    private Dictionary<object, string> testResults = new();
+
+    protected override void OnInitialized()
+    {
+        systemUsers = UserManager.Users.Where(u => u.IsActive).OrderBy(u => u.FullName).ToList();
+    }
+
+    private void AddImapAccount() => ConfigService.Current.ImapAccounts.Add(new QuoteTrack.Web.Services.ImapAccount());
+    private void AddSmtpAccount() => ConfigService.Current.SmtpAccounts.Add(new QuoteTrack.Web.Services.SmtpAccount());
+    private TimeOnly? DailyDigestTimeValue
+    {
+        get
+        {
+            if (TimeOnly.TryParse(ConfigService.Current.DailyDigestTimeLocal, out var t))
+                return t;
+
+            return new TimeOnly(8, 0);
+        }
+        set
+        {
+            ConfigService.Current.DailyDigestTimeLocal = value?.ToString("HH:mm") ?? "08:00";
+        }
+    }
+
+
+    private async Task SaveConfig()
+    {
+        ConfigService.Save();
+        showSuccessMessage = true;
+        await Task.Delay(1000);
+        NavManager.NavigateTo(NavManager.Uri, forceLoad: true);
+    }
+
+    private async Task DownloadBackup()
+    {
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmm");
+        await JS.InvokeVoidAsync("downloadFileFromUrl", "/api/backup", $"QuoteTrack_Backup_{timestamp}.json");
+    }
+
+    private async Task TestImapConnection(QuoteTrack.Web.Services.ImapAccount acc)
+    {
+        isTesting = acc;
+        testResults[acc] = "";
+        StateHasChanged();
+
+        try
+        {
+            using var client = new ImapClient();
+            await client.ConnectAsync(acc.Host, acc.Port, acc.UseSsl);
+            await client.AuthenticateAsync(acc.Username, acc.Password);
+            var folder = await client.GetFolderAsync(string.IsNullOrWhiteSpace(acc.TargetFolder) ? "INBOX" : acc.TargetFolder);
+            await folder.OpenAsync(MailKit.FolderAccess.ReadOnly);
+            testResults[acc] = $"✅ Connection Successful! Found folder '{folder.FullName}' with {folder.Count} emails.";
+            await client.DisconnectAsync(true);
+        }
+        catch (Exception ex)
+        {
+            testResults[acc] = $"❌ Connection Failed: {ex.Message}";
+        }
+        finally
+        {
+            isTesting = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestSmtpConnection(QuoteTrack.Web.Services.SmtpAccount acc)
+    {
+        isTesting = acc;
+        testResults[acc] = "";
+        StateHasChanged();
+
+        try
+        {
+            using var client = new SmtpClient();
+            var secureOptions = acc.UseSsl ? MailKit.Security.SecureSocketOptions.SslOnConnect : MailKit.Security.SecureSocketOptions.StartTls;
+            await client.ConnectAsync(acc.Host, acc.Port, secureOptions);
+            await client.AuthenticateAsync(acc.Username, acc.Password);
+            testResults[acc] = "✅ Connection Successful! SMTP relay is ready to send.";
+            await client.DisconnectAsync(true);
+        }
+        catch (Exception ex)
+        {
+            testResults[acc] = $"❌ Connection Failed: {ex.Message}";
+        }
+        finally
+        {
+            isTesting = null;
+            StateHasChanged();
+        }
+    }
+}

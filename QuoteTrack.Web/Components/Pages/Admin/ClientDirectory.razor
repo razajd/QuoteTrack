@@ -1,0 +1,648 @@
+﻿@page "/admin/clients"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Identity
+@using System.ComponentModel.DataAnnotations
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@using QuoteTrack.Domain.Enums
+@inject IClientService ClientService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+
+@attribute [Authorize(Roles = "Admin,Finance")]
+
+<PageTitle>Client Directory</PageTitle>
+
+<style>
+    .qt-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,.5);
+        z-index: 1040;
+    }
+
+    .qt-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .qt-modal-card {
+        width: min(900px, 100%);
+        max-height: 92vh;
+        overflow: auto;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.25);
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-1"><i class="bi bi-building text-primary me-2"></i>Client Directory</h2>
+        <div class="text-muted small">Manage verified clients and approve pending client requests.</div>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary fw-bold shadow-sm" @onclick="OpenAddClientModal">
+            <i class="bi bi-plus-circle me-1"></i> Add Client
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(messageOk ? "alert-success" : "alert-danger") shadow-sm fw-bold alert-dismissible fade show">
+        @message
+        <button type="button" class="btn-close" @onclick="() => message = string.Empty"></button>
+    </div>
+}
+
+@if (isLoading)
+{
+    <div class="text-center mt-5"><div class="spinner-border text-primary" role="status"></div></div>
+}
+else
+{
+    @if (pendingClients.Any())
+    {
+        <div class="card shadow-sm border-0 border-start border-warning border-4 mb-5">
+            <div class="card-header bg-warning bg-opacity-10 border-bottom fw-bold py-3 text-dark">
+                <i class="bi bi-shield-lock-fill text-warning me-2"></i> Pending Approval
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">Company Name</th>
+                            <th>CR Number</th>
+                            <th>TRN</th>
+                            <th>Submitted By</th>
+                            <th class="text-end pe-3">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in pendingClients)
+                        {
+                            <tr>
+                                <td class="ps-3 fw-bold">@c.CompanyName</td>
+                                <td class="small">@((string.IsNullOrWhiteSpace(c.CommercialRegistrationNumber)) ? "-" : c.CommercialRegistrationNumber)</td>
+                                <td class="small">@((string.IsNullOrWhiteSpace(c.TaxRegistrationNumber)) ? "-" : c.TaxRegistrationNumber)</td>
+                                <td class="text-muted small">@((c.SubmittedBy?.FullName) ?? "Unknown")</td>
+                                <td class="text-end pe-3">
+                                    <button class="btn btn-sm btn-success fw-bold me-1" @onclick="() => UpdateStatus(c, ClientApprovalStatus.Approved)">Approve</button>
+                                    <button class="btn btn-sm btn-danger fw-bold" @onclick="() => UpdateStatus(c, ClientApprovalStatus.Rejected)">Reject</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-dark text-white fw-bold py-3 d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi bi-journal-check text-success me-2"></i> Verified Clients
+            </div>
+
+            <div class="d-flex gap-2 align-items-center">
+                <input class="form-control form-control-sm"
+                       style="min-width:260px"
+                       placeholder="Search company / email / phone"
+                       @bind="searchText"
+                       @bind:event="oninput" />
+                <span class="badge bg-light text-dark border">@filteredVerified.Count</span>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            <table class="table table-hover table-striped align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3">Company Name</th>
+                        <th>Industry</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>CR</th>
+                        <th>TRN</th>
+                        <th>Status</th>
+                        <th class="text-end pe-3">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in filteredVerified)
+                    {
+                        <tr>
+                            <td class="ps-3 fw-bold text-primary">@c.CompanyName</td>
+                            <td>@(string.IsNullOrWhiteSpace(c.Industry) ? "-" : c.Industry)</td>
+                            <td class="small">@((string.IsNullOrWhiteSpace(c.Email)) ? "-" : c.Email)</td>
+                            <td class="small">@((string.IsNullOrWhiteSpace(c.Phone)) ? "-" : c.Phone)</td>
+                            <td class="small">@((string.IsNullOrWhiteSpace(c.CommercialRegistrationNumber)) ? "-" : c.CommercialRegistrationNumber)</td>
+                            <td class="small">@((string.IsNullOrWhiteSpace(c.TaxRegistrationNumber)) ? "-" : c.TaxRegistrationNumber)</td>
+                            <td><span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Approved</span></td>
+                            <td class="text-end pe-3">
+                                <button class="btn btn-sm btn-outline-primary fw-bold me-1" @onclick="() => OpenViewClientModal(c)">
+                                    <i class="bi bi-eye me-1"></i>View
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary fw-bold" @onclick="() => OpenEditClientModal(c)">
+                                    <i class="bi bi-pencil-square me-1"></i>Edit
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                    @if (!filteredVerified.Any())
+                    {
+                        <tr><td colspan="8" class="text-center py-4 text-muted">No verified clients found.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (showAddModal)
+{
+    <div class="qt-modal-backdrop" @onclick="CloseAllModals"></div>
+    <div class="qt-modal">
+        <div class="qt-modal-card">
+            <div class="p-4 border-bottom d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="fw-bold fs-5"><i class="bi bi-plus-circle text-primary me-2"></i>Add Client</div>
+                    <div class="text-muted small">Manual entry for Admin/Finance.</div>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CloseAllModals"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="p-4">
+                <EditForm Model="addModel" OnValidSubmit="SaveNewClient">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label fw-bold">Company Name *</label>
+                            <InputText class="form-control" @bind-Value="addModel.CompanyName" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Approval Status</label>
+                            <InputSelect class="form-select" @bind-Value="addModel.ApprovalStatus">
+                                <option value="@ClientApprovalStatus.Approved">Approved</option>
+                                <option value="@ClientApprovalStatus.Pending">Pending</option>
+                            </InputSelect>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Industry</label>
+                            <InputText class="form-control" @bind-Value="addModel.Industry" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Primary Contact</label>
+                            <InputText class="form-control" @bind-Value="addModel.PrimaryContactName" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Phone</label>
+                            <InputText class="form-control" @bind-Value="addModel.Phone" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Email</label>
+                            <InputText class="form-control" @bind-Value="addModel.Email" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">CR Number</label>
+                            <InputText class="form-control" @bind-Value="addModel.CommercialRegistrationNumber" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">TRN (VAT)</label>
+                            <InputText class="form-control" @bind-Value="addModel.TaxRegistrationNumber" />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Billing Address</label>
+                            <InputTextArea class="form-control" rows="3" @bind-Value="addModel.BillingAddress" />
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-4">
+                        <button type="button" class="btn btn-outline-secondary fw-bold" @onclick="CloseAllModals">Cancel</button>
+                        <button type="submit" class="btn btn-primary fw-bold" disabled="@saving">
+                            @(saving ? "Saving" : "Save")
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showViewModal && selectedClient != null)
+{
+    <div class="qt-modal-backdrop" @onclick="CloseAllModals"></div>
+    <div class="qt-modal">
+        <div class="qt-modal-card">
+            <div class="p-4 border-bottom d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="fw-bold fs-5"><i class="bi bi-eye text-primary me-2"></i>Client Details</div>
+                    <div class="text-muted small">@selectedClient.CompanyName</div>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CloseAllModals"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="p-4">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="fw-bold">Company Name</div>
+                        <div>@selectedClient.CompanyName</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="fw-bold">Industry</div>
+                        <div>@(string.IsNullOrWhiteSpace(selectedClient.Industry) ? "-" : selectedClient.Industry)</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="fw-bold">Email</div>
+                        <div>@(string.IsNullOrWhiteSpace(selectedClient.Email) ? "-" : selectedClient.Email)</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="fw-bold">Phone</div>
+                        <div>@(string.IsNullOrWhiteSpace(selectedClient.Phone) ? "-" : selectedClient.Phone)</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="fw-bold">CR Number</div>
+                        <div>@(string.IsNullOrWhiteSpace(selectedClient.CommercialRegistrationNumber) ? "-" : selectedClient.CommercialRegistrationNumber)</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="fw-bold">TRN</div>
+                        <div>@(string.IsNullOrWhiteSpace(selectedClient.TaxRegistrationNumber) ? "-" : selectedClient.TaxRegistrationNumber)</div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="fw-bold">Billing Address</div>
+                        <div style="white-space:pre-wrap;">@(string.IsNullOrWhiteSpace(selectedClient.BillingAddress) ? "-" : selectedClient.BillingAddress)</div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="fw-bold">Status</div>
+                        <div>@selectedClient.ApprovalStatus</div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-end mt-4">
+                    <button class="btn btn-outline-secondary fw-bold" @onclick="CloseAllModals">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showEditModal && editModel != null)
+{
+    <div class="qt-modal-backdrop" @onclick="CloseAllModals"></div>
+    <div class="qt-modal">
+        <div class="qt-modal-card">
+            <div class="p-4 border-bottom d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="fw-bold fs-5"><i class="bi bi-pencil-square text-primary me-2"></i>Edit Client</div>
+                    <div class="text-muted small">@editModel.CompanyName</div>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CloseAllModals"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="p-4">
+                <EditForm Model="editModel" OnValidSubmit="SaveEditedClient">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label fw-bold">Company Name *</label>
+                            <InputText class="form-control" @bind-Value="editModel.CompanyName" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Approval Status</label>
+                            <InputSelect class="form-select" @bind-Value="editModel.ApprovalStatus">
+                                <option value="@ClientApprovalStatus.Approved">Approved</option>
+                                <option value="@ClientApprovalStatus.Pending">Pending</option>
+                                <option value="@ClientApprovalStatus.Rejected">Rejected</option>
+                            </InputSelect>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Industry</label>
+                            <InputText class="form-control" @bind-Value="editModel.Industry" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Primary Contact</label>
+                            <InputText class="form-control" @bind-Value="editModel.PrimaryContactName" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Phone</label>
+                            <InputText class="form-control" @bind-Value="editModel.Phone" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Email</label>
+                            <InputText class="form-control" @bind-Value="editModel.Email" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">CR Number</label>
+                            <InputText class="form-control" @bind-Value="editModel.CommercialRegistrationNumber" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">TRN (VAT)</label>
+                            <InputText class="form-control" @bind-Value="editModel.TaxRegistrationNumber" />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Billing Address</label>
+                            <InputTextArea class="form-control" rows="3" @bind-Value="editModel.BillingAddress" />
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-4">
+                        <button type="button" class="btn btn-outline-secondary fw-bold" @onclick="CloseAllModals">Cancel</button>
+                        <button type="submit" class="btn btn-primary fw-bold" disabled="@saving">
+                            @(saving ? "Saving" : "Save Changes")
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool saving = false;
+
+    private string message = string.Empty;
+    private bool messageOk = false;
+
+    private string? currentUserId;
+    private string searchText = string.Empty;
+
+    private List<Client> allClients = new List<Client>();
+
+    private IEnumerable<Client> pendingClients => allClients.Where(c => c.ApprovalStatus == ClientApprovalStatus.Pending);
+
+    private List<Client> filteredVerified =>
+        allClients
+            .Where(c => c.ApprovalStatus == ClientApprovalStatus.Approved)
+            .Where(c =>
+                string.IsNullOrWhiteSpace(searchText) ||
+                (c.CompanyName ?? "").Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                (c.Email ?? "").Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                (c.Phone ?? "").Contains(searchText, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c.CompanyName)
+            .ToList();
+
+    // Modals state
+    private bool showAddModal = false;
+    private bool showViewModal = false;
+    private bool showEditModal = false;
+
+    private Client? selectedClient = null;
+
+    private ClientInputModel addModel = new ClientInputModel();
+    private ClientInputModel? editModel = null;
+    private Guid editClientId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity != null && user.Identity.IsAuthenticated)
+        {
+            var appUser = await UserManager.GetUserAsync(user);
+            currentUserId = appUser?.Id;
+        }
+
+        await LoadData();
+        isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        allClients = await ClientService.GetAllClientsAsync();
+    }
+
+    private void OpenAddClientModal()
+    {
+        message = string.Empty;
+        addModel = new ClientInputModel
+        {
+            ApprovalStatus = ClientApprovalStatus.Approved
+        };
+        showAddModal = true;
+        showViewModal = false;
+        showEditModal = false;
+    }
+
+    private void OpenViewClientModal(Client c)
+    {
+        selectedClient = c;
+        showViewModal = true;
+        showAddModal = false;
+        showEditModal = false;
+    }
+
+    private void OpenEditClientModal(Client c)
+    {
+        selectedClient = null;
+
+        editClientId = c.Id;
+        editModel = new ClientInputModel
+        {
+            CompanyName = c.CompanyName ?? "",
+            Industry = c.Industry,
+            Email = c.Email,
+            Phone = c.Phone,
+            PrimaryContactName = c.PrimaryContactName,
+            CommercialRegistrationNumber = c.CommercialRegistrationNumber,
+            TaxRegistrationNumber = c.TaxRegistrationNumber,
+            BillingAddress = c.BillingAddress,
+            ApprovalStatus = c.ApprovalStatus
+        };
+
+        showEditModal = true;
+        showAddModal = false;
+        showViewModal = false;
+    }
+
+    private void CloseAllModals()
+    {
+        showAddModal = false;
+        showViewModal = false;
+        showEditModal = false;
+        selectedClient = null;
+        editModel = null;
+    }
+
+    private async Task UpdateStatus(Client client, ClientApprovalStatus newStatus)
+    {
+        try
+        {
+            client.ApprovalStatus = newStatus;
+            client.ApprovedByUserId = currentUserId;
+            client.UpdatedAt = DateTime.UtcNow;
+
+            await ClientService.UpdateClientAsync(
+    client,
+    currentUserId,
+    "Client Status Updated",
+    $"Updated client status for '{client.CompanyName}' to '{newStatus}'.");
+
+            await LoadData();
+
+            messageOk = true;
+            message = "Client status updated successfully.";
+        }
+        catch (Exception ex)
+        {
+            messageOk = false;
+            message = "Error updating status: " + ex.Message;
+        }
+    }
+
+    private async Task SaveNewClient()
+    {
+        if (saving) return;
+        saving = true;
+        message = string.Empty;
+
+        try
+        {
+            var exists = allClients.Any(c =>
+                string.Equals((c.CompanyName ?? "").Trim(), addModel.CompanyName.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            if (exists)
+                throw new Exception("A client with the same Company Name already exists.");
+
+            var entity = new Client
+            {
+                CompanyName = addModel.CompanyName.Trim(),
+                Industry = TrimOrNull(addModel.Industry),
+                PrimaryContactName = TrimOrNull(addModel.PrimaryContactName),
+                Email = TrimOrNull(addModel.Email),
+                Phone = TrimOrNull(addModel.Phone),
+                CommercialRegistrationNumber = TrimOrNull(addModel.CommercialRegistrationNumber),
+                TaxRegistrationNumber = TrimOrNull(addModel.TaxRegistrationNumber),
+                BillingAddress = TrimOrNull(addModel.BillingAddress),
+
+                ApprovalStatus = addModel.ApprovalStatus,
+                SubmittedByUserId = currentUserId,
+                ApprovedByUserId = addModel.ApprovalStatus == ClientApprovalStatus.Approved ? currentUserId : null,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await ClientService.AddClientAsync(entity);
+            await LoadData();
+
+            messageOk = true;
+            message = "Client added successfully.";
+            CloseAllModals();
+        }
+        catch (Exception ex)
+        {
+            messageOk = false;
+            message = "Error adding client: " + ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task SaveEditedClient()
+    {
+        if (saving || editModel == null) return;
+        saving = true;
+        message = string.Empty;
+
+        try
+        {
+            var entity = allClients.FirstOrDefault(x => x.Id == editClientId);
+            if (entity == null) throw new Exception("Client not found.");
+
+            // Duplicate check (ignore itself)
+            var exists = allClients.Any(c =>
+                c.Id != editClientId &&
+                string.Equals((c.CompanyName ?? "").Trim(), editModel.CompanyName.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            if (exists)
+                throw new Exception("Another client with the same Company Name already exists.");
+
+            entity.CompanyName = editModel.CompanyName.Trim();
+            entity.Industry = TrimOrNull(editModel.Industry);
+            entity.PrimaryContactName = TrimOrNull(editModel.PrimaryContactName);
+            entity.Email = TrimOrNull(editModel.Email);
+            entity.Phone = TrimOrNull(editModel.Phone);
+            entity.CommercialRegistrationNumber = TrimOrNull(editModel.CommercialRegistrationNumber);
+            entity.TaxRegistrationNumber = TrimOrNull(editModel.TaxRegistrationNumber);
+            entity.BillingAddress = TrimOrNull(editModel.BillingAddress);
+
+            // Approval handling
+            entity.ApprovalStatus = editModel.ApprovalStatus;
+            if (entity.ApprovalStatus == ClientApprovalStatus.Approved)
+                entity.ApprovedByUserId = currentUserId;
+
+            entity.UpdatedAt = DateTime.UtcNow;
+
+            await ClientService.UpdateClientAsync(
+    entity,
+    currentUserId,
+    "Client Updated",
+    $"Updated client '{entity.CompanyName}'.");
+
+
+            await LoadData();
+
+            messageOk = true;
+            message = "Client updated successfully.";
+            CloseAllModals();
+        }
+        catch (Exception ex)
+        {
+            messageOk = false;
+            message = "Error updating client: " + ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private string? TrimOrNull(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        return s.Trim();
+    }
+
+    private class ClientInputModel
+    {
+        [Required(ErrorMessage = "Company Name is required.")]
+        public string CompanyName { get; set; } = string.Empty;
+
+        public string? Industry { get; set; }
+        public string? PrimaryContactName { get; set; }
+        public string? Email { get; set; }
+        public string? Phone { get; set; }
+        public string? CommercialRegistrationNumber { get; set; }
+        public string? TaxRegistrationNumber { get; set; }
+        public string? BillingAddress { get; set; }
+
+        public ClientApprovalStatus ApprovalStatus { get; set; } = ClientApprovalStatus.Approved;
+    }
+}
