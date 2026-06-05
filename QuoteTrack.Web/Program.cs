@@ -64,6 +64,9 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 builder.Services.AddScoped<IQuoteService, QuoteService>();
 builder.Services.AddScoped<IRfqService, RfqService>();
 builder.Services.AddScoped<IClientService, ClientService>();
+builder.Services.AddScoped<IManagementDashboardService, ManagementDashboardService>();
+builder.Services.AddScoped<ICommandCenterSnapshotService, CommandCenterSnapshotService>();
+builder.Services.AddScoped<IQuoteListReadModelService, QuoteListReadModelService>();
 
 builder.Services.AddSingleton<AppConfigService>();
 builder.Services.AddScoped<EmailParsingService>();
@@ -74,6 +77,8 @@ builder.Services.AddScoped<IExcelQuotationExtractor, ClosedXmlQuotationExtractor
 // Background services
 builder.Services.AddHostedService<ReminderBackgroundService>();
 builder.Services.AddHostedService<QuoteTrack.Web.BackgroundServices.ImapLeadIngestionService>();
+builder.Services.AddHostedService<CommandCenterSnapshotWorker>();
+builder.Services.AddHostedService<QuoteListReadModelWorker>();
 
 var app = builder.Build();
 

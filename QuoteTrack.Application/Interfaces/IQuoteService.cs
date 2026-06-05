@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using QuoteTrack.Application.DTOs;
 using QuoteTrack.Domain.Entities;
 
 namespace QuoteTrack.Application.Interfaces
@@ -8,18 +9,55 @@ namespace QuoteTrack.Application.Interfaces
     public interface IQuoteService
     {
         Task<List<Quote>> GetAllQuotesAsync(string? userId, bool isAdmin);
+
+        // Dashboard-specific lighter load
+        Task<List<Quote>> GetDashboardQuotesAsync(string? userId, bool isAdmin, string? ownerId = null);
+
+        // Quotes page pagination
+        Task<List<Quote>> GetQuotesPageAsync(
+            string? userId,
+            bool isAdmin,
+            int pageNumber,
+            int pageSize,
+            string? ownerId,
+            string? searchText,
+            string sortColumn,
+            bool sortAsc);
+
+        Task<int> GetQuotesPageCountAsync(
+            string? userId,
+            bool isAdmin,
+            string? ownerId,
+            string? searchText);
+
+        // Active leads pagination
+        Task<List<Quote>> GetActiveLeadsPageAsync(
+            string? userId,
+            bool canViewAllLeads,
+            int pageNumber,
+            int pageSize,
+            string? ownerId,
+            string? searchText,
+            string sortColumn,
+            bool sortAsc);
+
+        Task<int> GetActiveLeadsPageCountAsync(
+            string? userId,
+            bool canViewAllLeads,
+            string? ownerId,
+            string? searchText);
+
         Task<int> GetTotalQuotesCountAsync(string? userId, bool isAdmin);
         Task<decimal> GetTotalQuoteValueAsync(string? userId, bool isAdmin);
         Task<int> GetFollowUpsDueCountAsync(string? userId, bool isAdmin);
         Task<Quote?> GetQuoteByIdAsync(Guid id);
         Task AddQuoteAsync(Quote quote);
-
-        // actorUserId is optional so older pages still compile,
-        // but pages that know the editor should pass it.
         Task UpdateQuoteAsync(Quote quote, string? actorUserId = null);
-
         Task AddFollowUpAsync(FollowUp followUp);
         Task<List<ApplicationUser>> GetSystemUsersAsync();
+        Task<NotificationCountsDto> GetNotificationCountsAsync();
+        Task<List<Quote>> GetLeadDispatchBoardQuotesAsync();
+        Task<List<Quote>> GetPendingLeadClosuresAsync();
         Task DeleteQuoteAsync(Guid id);
         Task SnoozeQuoteAsync(Guid id, int days);
 

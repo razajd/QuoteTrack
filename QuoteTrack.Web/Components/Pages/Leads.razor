@@ -26,9 +26,14 @@
     </div>
 
     <div class="d-flex gap-2">
+        <button class="btn btn-success" @onclick="ToggleNewLeadForm">
+            <i class="bi bi-plus-circle me-1"></i> @(showNewLeadForm ? "Close New Lead" : "New Lead")
+        </button>
+
         <button class="btn btn-outline-secondary" @onclick="ReloadPage">
             <i class="bi bi-arrow-clockwise me-1"></i> Refresh
         </button>
+
         <button class="btn btn-outline-primary" @onclick="OpenLeadHistory">
             <i class="bi bi-clock-history me-1"></i> Lead History
         </button>
@@ -43,68 +48,71 @@
     </div>
 }
 
-<div class="card shadow-sm border-0 mb-4">
-    <div class="card-header bg-white fw-bold border-bottom py-3">
-        <i class="bi bi-plus-circle-fill text-success me-2"></i>Create Manual Lead
-    </div>
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-md-4">
-                <label class="form-label small fw-bold text-muted">Client Name *</label>
-                <input class="form-control" @bind="manualClientName" />
-            </div>
-
-            <div class="col-md-4">
-                <label class="form-label small fw-bold text-muted">Client Email</label>
-                <input class="form-control" @bind="manualClientEmail" />
-            </div>
-
-            <div class="col-md-4">
-                <label class="form-label small fw-bold text-muted">Lead Source</label>
-                <input class="form-control" @bind="manualLeadSource" placeholder="Walk-in / Phone / Referral / Manual Entry" />
-            </div>
-
-            <div class="col-md-8">
-                <label class="form-label small fw-bold text-muted">Subject *</label>
-                <input class="form-control" @bind="manualSubject" />
-            </div>
-
-            <div class="col-md-4">
-                <label class="form-label small fw-bold text-muted">Next Action Due</label>
-                <input type="date" class="form-control" @bind="manualNextDueLocal" @bind:format="yyyy-MM-dd" />
-            </div>
-
-            @if (isAdminOrHead)
-            {
+@if (showNewLeadForm)
+{
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white fw-bold border-bottom py-3">
+            <i class="bi bi-plus-circle-fill text-success me-2"></i>Create Manual Lead
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
                 <div class="col-md-4">
-                    <label class="form-label small fw-bold text-muted">Assign To</label>
-                    <select class="form-select" @bind="selectedManualOwnerId">
-                        <option value="">Me (@currentUserName)</option>
-                        @foreach (var user in systemUsers.OrderBy(x => x.FullName))
-                        {
-                            <option value="@user.Id">@user.FullName</option>
-                        }
-                    </select>
+                    <label class="form-label small fw-bold text-muted">Client Name *</label>
+                    <input class="form-control" @bind="manualClientName" />
                 </div>
-            }
 
-            <div class="col-12">
-                <label class="form-label small fw-bold text-muted">Initial Notes / Requirement Summary</label>
-                <textarea class="form-control" rows="4" @bind="manualNotes"></textarea>
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold text-muted">Client Email</label>
+                    <input class="form-control" @bind="manualClientEmail" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold text-muted">Lead Source</label>
+                    <input class="form-control" @bind="manualLeadSource" placeholder="Walk-in / Phone / Referral / Manual Entry" />
+                </div>
+
+                <div class="col-md-8">
+                    <label class="form-label small fw-bold text-muted">Subject *</label>
+                    <input class="form-control" @bind="manualSubject" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold text-muted">Next Action Due</label>
+                    <input type="date" class="form-control" @bind="manualNextDueLocal" @bind:format="yyyy-MM-dd" />
+                </div>
+
+                @if (isAdminOrHead)
+                {
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold text-muted">Assign To</label>
+                        <select class="form-select" @bind="selectedManualOwnerId">
+                            <option value="">Me (@currentUserName)</option>
+                            @foreach (var user in systemUsers.OrderBy(x => x.FullName))
+                            {
+                                <option value="@user.Id">@user.FullName</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <div class="col-12">
+                    <label class="form-label small fw-bold text-muted">Initial Notes / Requirement Summary</label>
+                    <textarea class="form-control" rows="4" @bind="manualNotes"></textarea>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+                <button class="btn btn-success fw-bold shadow-sm" @onclick="CreateManualLead">
+                    <i class="bi bi-plus-circle me-1"></i> Create Lead
+                </button>
+
+                <button class="btn btn-outline-secondary fw-bold" @onclick="ClearManualForm">
+                    Clear
+                </button>
             </div>
         </div>
-
-        <div class="d-flex gap-2 mt-4">
-            <button class="btn btn-success fw-bold shadow-sm" @onclick="CreateManualLead">
-                <i class="bi bi-plus-circle me-1"></i> Create Lead
-            </button>
-
-            <button class="btn btn-outline-secondary fw-bold" @onclick="ClearManualForm">
-                Clear
-            </button>
-        </div>
     </div>
-</div>
+}
 
 @if (isAdminOrHead)
 {
@@ -120,7 +128,7 @@
                     <div class="spinner-border text-primary"></div>
                 </div>
             }
-            else if (!unassignedRfqs.Any())
+            else if (!PagedRfqs().Any())
             {
                 <div class="alert alert-info m-3 mb-0">
                     No new leads at the moment. The inbox is clear!
@@ -141,7 +149,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var rfq in unassignedRfqs)
+                            @foreach (var rfq in PagedRfqs())
                             {
                                 <tr>
                                     <td>@rfq.ReceivedAt.ToLocalTime().ToString("g")</td>
@@ -167,6 +175,21 @@
                         </tbody>
                     </table>
                 </div>
+
+                <div class="card-footer bg-white border-top">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="small text-muted">
+                            Showing page <b>@queueCurrentPage</b> of <b>@queueTotalPages</b> • Total records: <b>@unassignedRfqs.Count</b>
+                        </div>
+
+                        <div class="btn-group">
+                            <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToQueuePage(1)" disabled="@(queueCurrentPage <= 1)">First</button>
+                            <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToQueuePage(queueCurrentPage - 1)" disabled="@(queueCurrentPage <= 1)">Prev</button>
+                            <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToQueuePage(queueCurrentPage + 1)" disabled="@(queueCurrentPage >= queueTotalPages)">Next</button>
+                            <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToQueuePage(queueTotalPages)" disabled="@(queueCurrentPage >= queueTotalPages)">Last</button>
+                        </div>
+                    </div>
+                </div>
             }
         </div>
     </div>
@@ -174,7 +197,7 @@
 else
 {
     <div class="alert alert-light border shadow-sm">
-        <b>Tip:</b> Use the form above to create your own lead manually. To review old items, open <b>Lead History</b>.
+        <b>Tip:</b> Click <b>New Lead</b> to create a manual lead. To review old items, open <b>Lead History</b>.
     </div>
 }
 
@@ -186,6 +209,7 @@ else
 
     private bool isQueueLoading = true;
     private bool isAdminOrHead = false;
+    private bool showNewLeadForm = false;
 
     private string? currentUserId;
     private string currentUserName = "Current User";
@@ -194,7 +218,10 @@ else
     private string uiMessage = "";
     private bool uiOk = true;
 
-    // manual lead form
+    private int queueCurrentPage = 1;
+    private int queuePageSize = 10;
+    private int queueTotalPages = 1;
+
     private string manualClientName = "";
     private string manualClientEmail = "";
     private string manualLeadSource = "Manual Entry";
@@ -243,13 +270,38 @@ else
                 selectedUserIds[rfq.Id] = "";
             }
 
+            queueTotalPages = Math.Max(1, (int)Math.Ceiling(unassignedRfqs.Count / (double)queuePageSize));
+            if (queueCurrentPage > queueTotalPages)
+                queueCurrentPage = queueTotalPages;
+
             isQueueLoading = false;
         }
         else
         {
             unassignedRfqs = new List<Rfq>();
+            queueTotalPages = 1;
+            queueCurrentPage = 1;
             isQueueLoading = false;
         }
+    }
+
+    private IEnumerable<Rfq> PagedRfqs()
+    {
+        return unassignedRfqs
+            .Skip((queueCurrentPage - 1) * queuePageSize)
+            .Take(queuePageSize);
+    }
+
+    private void GoToQueuePage(int page)
+    {
+        if (page < 1) page = 1;
+        if (page > queueTotalPages) page = queueTotalPages;
+        queueCurrentPage = page;
+    }
+
+    private void ToggleNewLeadForm()
+    {
+        showNewLeadForm = !showNewLeadForm;
     }
 
     private async Task AssignLead(Guid rfqId)
@@ -337,6 +389,7 @@ else
             uiMessage = "Manual lead created successfully.";
 
             ClearManualForm();
+            showNewLeadForm = false;
             await LoadDataAsync();
 
             NavManager.NavigateTo($"/lead/{lead.Id}");

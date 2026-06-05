@@ -105,12 +105,19 @@ else
 
     private async Task RejectDeletion(Quote quote)
     {
-        // Wipe the deletion request data and put it back in the pipeline
-        quote.IsDeleteRequested = false;
-        quote.DeleteRequestReason = null;
-        quote.DeleteRequestedByUserId = null;
+        var quoteToUpdate = await QuoteService.GetQuoteByIdAsync(quote.Id);
+        if (quoteToUpdate == null)
+        {
+            await LoadQueueAsync();
+            return;
+        }
 
-        await QuoteService.UpdateQuoteAsync(quote);
+        // Wipe the deletion request data and put it back in the pipeline
+        quoteToUpdate.IsDeleteRequested = false;
+        quoteToUpdate.DeleteRequestReason = null;
+        quoteToUpdate.DeleteRequestedByUserId = null;
+
+        await QuoteService.UpdateQuoteAsync(quoteToUpdate);
         await LoadQueueAsync();
     }
 

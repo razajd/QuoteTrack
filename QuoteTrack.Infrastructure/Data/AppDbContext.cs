@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using QuoteTrack.Application.Interfaces;
 using QuoteTrack.Domain.Entities;
+using QuoteTrack.Domain.Enums;
 
 namespace QuoteTrack.Infrastructure.Data
 {
@@ -21,11 +22,19 @@ namespace QuoteTrack.Infrastructure.Data
         public DbSet<FollowUp> FollowUps { get; set; }
         public DbSet<Client> Clients { get; set; }
         public DbSet<ActivityLog> ActivityLogs { get; set; }
+        public DbSet<QuoteEvent> QuoteEvents { get; set; }
+        public DbSet<CommandCenterSnapshot> CommandCenterSnapshots { get; set; }
+        public DbSet<CommandCenterQueueItem> CommandCenterQueueItems { get; set; }
+        public DbSet<CommandCenterActivityItem> CommandCenterActivityItems { get; set; }
+        public DbSet<CommandCenterRadarItem> CommandCenterRadarItems { get; set; }
+        public DbSet<QuoteListItem> QuoteListItems { get; set; }
+        public DbSet<ReadModelState> ReadModelStates { get; set; }
         public DbSet<MergeRequest> MergeRequests { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             var path = Path.Combine(Directory.GetCurrentDirectory(), "appsettings.custom.json");
+
             if (File.Exists(path))
             {
                 try
@@ -36,16 +45,26 @@ namespace QuoteTrack.Infrastructure.Data
                         var conn = prop.GetString();
                         if (!string.IsNullOrWhiteSpace(conn))
                         {
-                            optionsBuilder.UseNpgsql(conn);
+                            optionsBuilder.UseNpgsql(conn, npgsql =>
+                            {
+                                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                            });
                             return;
                         }
                     }
                 }
-                catch { }
+                catch
+                {
+                }
             }
 
             if (!optionsBuilder.IsConfigured)
-                optionsBuilder.UseNpgsql("Host=localhost;Database=temp_setup;Username=temp;Password=temp");
+            {
+                optionsBuilder.UseNpgsql("Host=localhost;Database=temp_setup;Username=temp;Password=temp", npgsql =>
+                {
+                    npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                });
+            }
         }
 
         protected override void OnModelCreating(ModelBuilder builder)
@@ -63,6 +82,18 @@ namespace QuoteTrack.Infrastructure.Data
                 .WithOne(f => f.Quote)
                 .HasForeignKey(f => f.QuoteId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<Quote>()
+                .HasMany(q => q.Events)
+                .WithOne(e => e.Quote)
+                .HasForeignKey(e => e.QuoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<QuoteEvent>()
+                .HasOne(e => e.ActorUser)
+                .WithMany()
+                .HasForeignKey(e => e.ActorUserId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             builder.Entity<FollowUp>()
                 .HasOne(f => f.CreatedByUser)
@@ -100,8 +131,179 @@ namespace QuoteTrack.Infrastructure.Data
                 .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // Existing
             builder.Entity<MergeRequest>()
                 .HasIndex(m => m.Status);
+
+            // ===== PERFORMANCE INDEXES =====
+
+            // Main dashboard / quotes page filters
+            builder.Entity<Quote>()
+                .HasIndex(q => q.RecordType);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.OwnerId);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.Status);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.CreatedAt);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.NextFollowUpDate);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.AssignedAt);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.FirstContactedAt);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.QuotedAt);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.WonAt);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.LostAt);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.ClientId);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.IsDeleteRequested);
+
+            builder.Entity<Quote>()
+                .HasIndex(q => q.EmailMessageId);
+
+            // Useful composite indexes for common dashboard / list queries
+            builder.Entity<Quote>()
+                .HasIndex(q => new { q.RecordType, q.Status });
+
+            builder.Entity<Quote>()
+                .HasIndex(q => new { q.RecordType, q.OwnerId, q.Status });
+
+            builder.Entity<Quote>()
+                .HasIndex(q => new { q.RecordType, q.IsDeleteRequested, q.CreatedAt });
+
+            builder.Entity<Quote>()
+                .HasIndex(q => new { q.RecordType, q.IsDeleteRequested, q.NextFollowUpDate });
+
+            builder.Entity<Quote>()
+                .HasIndex(q => new { q.OwnerId, q.IsDeleteRequested, q.CreatedAt });
+
+            // Follow-up heavy lookups
+            builder.Entity<FollowUp>()
+                .HasIndex(f => f.QuoteId);
+
+            builder.Entity<FollowUp>()
+                .HasIndex(f => f.CreatedAt);
+
+            builder.Entity<FollowUp>()
+                .HasIndex(f => new { f.QuoteId, f.CreatedAt });
+
+            builder.Entity<FollowUp>()
+                .HasIndex(f => new { f.QuoteId, f.DueDate });
+
+            // Attachment lookups
+            builder.Entity<Attachment>()
+                .HasIndex(a => a.QuoteId);
+
+            // Activity log lookups
+            builder.Entity<ActivityLog>()
+                .HasIndex(a => a.UserId);
+
+            builder.Entity<ActivityLog>()
+                .HasIndex(a => a.Timestamp);
+
+            builder.Entity<ActivityLog>()
+                .HasIndex(a => new { a.UserId, a.Timestamp });
+
+            builder.Entity<ActivityLog>()
+                .HasIndex(a => a.RelatedQuoteId);
+
+            // Structured workflow/audit lookups
+            builder.Entity<QuoteEvent>()
+                .HasIndex(e => e.QuoteId);
+
+            builder.Entity<QuoteEvent>()
+                .HasIndex(e => e.EventType);
+
+            builder.Entity<QuoteEvent>()
+                .HasIndex(e => e.OccurredAt);
+
+            builder.Entity<QuoteEvent>()
+                .HasIndex(e => new { e.QuoteId, e.OccurredAt });
+
+            builder.Entity<QuoteEvent>()
+                .HasIndex(e => new { e.EventType, e.OccurredAt });
+
+            builder.Entity<QuoteEvent>()
+                .HasIndex(e => e.ActorUserId);
+
+            // Prepared Command Center read model
+            builder.Entity<CommandCenterSnapshot>()
+                .HasKey(s => s.ScopeKey);
+
+            builder.Entity<CommandCenterSnapshot>()
+                .HasIndex(s => s.IsStale);
+
+            builder.Entity<CommandCenterSnapshot>()
+                .HasIndex(s => s.LastRefreshedAt);
+
+            builder.Entity<CommandCenterQueueItem>()
+                .HasIndex(i => new { i.ScopeKey, i.SortRank });
+
+            builder.Entity<CommandCenterQueueItem>()
+                .HasIndex(i => new { i.ScopeKey, i.RecordType });
+
+            builder.Entity<CommandCenterActivityItem>()
+                .HasIndex(i => new { i.ScopeKey, i.SortRank });
+
+            builder.Entity<CommandCenterActivityItem>()
+                .HasIndex(i => new { i.ScopeKey, i.WhenUtc });
+
+            builder.Entity<CommandCenterRadarItem>()
+                .HasIndex(i => new { i.ScopeKey, i.RadarType, i.SortRank });
+
+            builder.Entity<QuoteListItem>()
+                .HasKey(i => i.QuoteId);
+
+            builder.Entity<QuoteListItem>()
+                .HasIndex(i => new { i.RecordType, i.IsDeleteRequested, i.CreatedAt });
+
+            builder.Entity<QuoteListItem>()
+                .HasIndex(i => new { i.RecordType, i.Status, i.IsDeleteRequested, i.OwnerId });
+
+            builder.Entity<QuoteListItem>()
+                .HasIndex(i => new { i.OwnerId, i.IsDeleteRequested, i.CreatedAt });
+
+            builder.Entity<QuoteListItem>()
+                .HasIndex(i => i.NextFollowUpDate);
+
+            builder.Entity<QuoteListItem>()
+                .HasIndex(i => i.EmailReceivedDateTime);
+
+            builder.Entity<QuoteListItem>()
+                .HasIndex(i => i.LastNoteAt);
+
+            builder.Entity<ReadModelState>()
+                .HasKey(s => s.Key);
+
+            builder.Entity<ReadModelState>()
+                .HasIndex(s => s.IsStale);
+
+            // Client lookups / linking
+            builder.Entity<Client>()
+                .HasIndex(c => c.CompanyName);
+
+            // Rfq queue
+            builder.Entity<Rfq>()
+                .HasIndex(r => r.ReceivedAt);
+
+            //builder.Entity<Rfq>()
+            //    .HasIndex(r => r.AssignedToUserId);
         }
 
         public override int SaveChanges()

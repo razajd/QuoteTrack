@@ -64,8 +64,15 @@ namespace QuoteTrack.Application.Services
             existing.CompanyName = client.CompanyName;
             existing.Industry = client.Industry;
             existing.PrimaryContactName = client.PrimaryContactName;
+            existing.PrimaryContactDesignation = client.PrimaryContactDesignation;
             existing.Email = client.Email;
             existing.Phone = client.Phone;
+            existing.Website = client.Website;
+            existing.AddressLine1 = client.AddressLine1;
+            existing.AddressLine2 = client.AddressLine2;
+            existing.City = client.City;
+            existing.Country = client.Country;
+            existing.Notes = client.Notes;
             existing.CommercialRegistrationNumber = client.CommercialRegistrationNumber;
             existing.TaxRegistrationNumber = client.TaxRegistrationNumber;
             existing.BillingAddress = client.BillingAddress;

@@ -5,11 +5,13 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
+@using QuoteTrack.Application.DTOs
 @using QuoteTrack.Application.Interfaces
 @using QuoteTrack.Domain.Entities
 @using QuoteTrack.Domain.Enums
 
 @inject IQuoteService QuoteService
+@inject ICommandCenterSnapshotService CommandCenterSnapshotService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Nav
@@ -247,7 +249,17 @@ else
         </div>
 
         <div class="text-end">
-            <div class="small muted">Last refreshed: @lastRefreshedLocal.ToString("dd MMM yyyy, hh:mm tt")</div>
+            <div class="small muted">
+                Last snapshot: @lastRefreshedLocal.ToString("dd MMM yyyy, hh:mm tt")
+                @if (snapshotIsRefreshing)
+                {
+                    <span class="badge bg-info text-dark ms-1">refreshing</span>
+                }
+                else if (snapshotIsStale)
+                {
+                    <span class="badge bg-warning text-dark ms-1">stale</span>
+                }
+            </div>
             <button class="btn btn-outline-secondary btn-sm fw-bold mt-1" @onclick="Reload">Refresh</button>
         </div>
     </div>
@@ -263,7 +275,7 @@ else
                 {
                     <div class="col-md-4">
                         <label class="form-label small fw-bold text-muted">Owner (Salesperson)</label>
-                        <select class="form-select" @bind="selectedOwnerId" @bind:after="OnFilterChanged">
+                        <select class="form-select" @bind="selectedOwnerId" @bind:after="OnOwnerFilterChanged">
                             <option value="">All</option>
                             @foreach (var u in systemUsers.OrderBy(x => x.FullName))
                             {
@@ -372,13 +384,13 @@ else
                     <div class="small">Sorted: Overdue → Due Today → High Value → Newest</div>
                 </div>
                 <div class="panel-body">
-                    @if (!ActionQueue().Any())
+                    @if (!actionQueueItems.Any())
                     {
                         <div class="text-muted">Nothing matches your current filters.</div>
                     }
                     else
                     {
-                        @foreach (var item in ActionQueue().Take(30))
+                        @foreach (var item in actionQueueItems.Take(30))
                         {
                             <div class="queue-row">
                                 <div class="d-flex justify-content-between align-items-start gap-3">
@@ -478,7 +490,7 @@ else
                     <div class="small muted">Status + Aging</div>
                 </div>
                 <div class="panel-body">
-                    @foreach (var row in StatusRadarRows())
+                    @foreach (var row in statusRadarRows)
                     {
                         <div class="radar-row">
                             <div style="min-width:120px;">
@@ -496,7 +508,7 @@ else
 
                     <hr />
 
-                    @foreach (var row in AgingRadarRows())
+                    @foreach (var row in agingRadarRows)
                     {
                         <div class="radar-row">
                             <div style="min-width:120px;">
@@ -520,13 +532,13 @@ else
                     <div class="small muted">Latest notes</div>
                 </div>
                 <div class="panel-body">
-                    @if (!RecentActivity().Any())
+                    @if (!recentActivityItems.Any())
                     {
                         <div class="text-muted">No activity yet.</div>
                     }
                     else
                     {
-                        @foreach (var ev in RecentActivity().Take(10))
+                        @foreach (var ev in recentActivityItems.Take(10))
                         {
                             <div class="queue-row">
                                 <div class="d-flex justify-content-between gap-2">
@@ -557,7 +569,14 @@ else
     private bool isAdmin;
 
     private List<ApplicationUser> systemUsers = new();
-    private List<Quote> allQuotes = new();
+    private CommandCenterSnapshotDto? currentSnapshot;
+    private List<QueueItem> snapshotQueueItems = new();
+    private List<QueueItem> actionQueueItems = new();
+    private List<ActivityEvent> recentActivityItems = new();
+    private List<RadarRow> statusRadarRows = new();
+    private List<RadarRow> agingRadarRows = new();
+    private bool snapshotIsRefreshing;
+    private bool snapshotIsStale;
 
     private string selectedOwnerId = "";
     private string searchText = "";
@@ -593,10 +612,12 @@ else
         isAdmin = principal.IsInRole("Admin");
 
         systemUsers = await QuoteService.GetSystemUsersAsync();
-        allQuotes = await QuoteService.GetAllQuotesAsync(currentUserId, isAdmin);
 
-        ComputeKpis();
-        lastRefreshedLocal = DateTime.Now;
+        if (isAdmin && !string.IsNullOrWhiteSpace(currentUserId))
+            selectedOwnerId = currentUserId;
+
+        await LoadSnapshotAsync();
+
         isLoading = false;
     }
 
@@ -605,264 +626,134 @@ else
         isLoading = true;
         StateHasChanged();
 
-        allQuotes = await QuoteService.GetAllQuotesAsync(currentUserId, isAdmin);
-        ComputeKpis();
+        await LoadSnapshotAsync();
 
-        lastRefreshedLocal = DateTime.Now;
         isLoading = false;
     }
 
     private Task OnFilterChanged()
     {
-        ComputeKpis();
+        RebuildDashboardState();
         StateHasChanged();
         return Task.CompletedTask;
     }
 
-    private void ClearFilters()
+    private async Task OnOwnerFilterChanged()
     {
-        selectedOwnerId = "";
+        isLoading = true;
+        StateHasChanged();
+
+        await LoadSnapshotAsync();
+
+        isLoading = false;
+    }
+
+    private async Task ClearFilters()
+    {
+        selectedOwnerId = isAdmin ? (currentUserId ?? "") : "";
         searchText = "";
         recordView = DashboardView.All;
         activeChip = Chip.None;
-        ComputeKpis();
+
+        await LoadSnapshotAsync();
     }
 
     private void SetChip(Chip chip)
     {
         activeChip = (activeChip == chip) ? Chip.None : chip;
+        RebuildDashboardState();
     }
 
-    private IEnumerable<Quote> ScopedRecords()
+    private void RebuildDashboardState()
     {
-        IEnumerable<Quote> q = allQuotes;
+        actionQueueItems = FilterQueueItems().ToList();
+        recentActivityItems = currentSnapshot?.ActivityItems
+            .Select(x => new ActivityEvent
+            {
+                WhenUtc = x.WhenUtc,
+                WhenLocal = x.WhenLocal,
+                Title = x.Title,
+                Details = x.Details,
+                Link = x.Link
+            })
+            .Take(25)
+            .ToList() ?? new List<ActivityEvent>();
+
+        statusRadarRows = currentSnapshot?.StatusRadarRows.Select(MapRadarRow).ToList() ?? new List<RadarRow>();
+        agingRadarRows = currentSnapshot?.AgingRadarRows.Select(MapRadarRow).ToList() ?? new List<RadarRow>();
+    }
+
+    private async Task LoadSnapshotAsync()
+    {
+        currentSnapshot = await CommandCenterSnapshotService.GetSnapshotAsync(
+            currentUserId,
+            isAdmin,
+            isAdmin ? selectedOwnerId : null);
+
+        snapshotIsRefreshing = currentSnapshot.IsRefreshing;
+        snapshotIsStale = currentSnapshot.IsStale;
+
+        lastRefreshedLocal = currentSnapshot.LastRefreshedAt == DateTime.MinValue
+            ? DateTime.Now
+            : currentSnapshot.LastRefreshedAt.ToLocalTime();
+
+        kpiPipelineValue = currentSnapshot.PipelineValue;
+        kpiActiveQuotesCount = currentSnapshot.ActiveQuotesCount;
+        kpiWonThisMonth = currentSnapshot.WonThisMonth;
+        kpiWonCountThisMonth = currentSnapshot.WonCountThisMonth;
+        kpiOverdueCount = currentSnapshot.OverdueCount;
+        kpiOverdueValue = currentSnapshot.OverdueValue;
+        kpiDueTodayCount = currentSnapshot.DueTodayCount;
+        kpiDueTodayValue = currentSnapshot.DueTodayValue;
+        kpiNewLeads7d = currentSnapshot.NewLeads7d;
+        kpiUnassignedLeads = currentSnapshot.UnassignedLeads;
+        kpiUnassignedCount = currentSnapshot.UnassignedCount;
+        kpiHighValueCount = currentSnapshot.HighValueCount;
+        kpiMissingFollowUpCount = currentSnapshot.MissingFollowUpCount;
+        kpiValueTbd = currentSnapshot.ValueTbdCount;
+        kpiMissingClientLink = currentSnapshot.MissingClientLinkCount;
+
+        snapshotQueueItems = currentSnapshot.QueueItems.Select(MapQueueItem).ToList();
+        RebuildDashboardState();
+    }
+
+    private IEnumerable<QueueItem> FilterQueueItems()
+    {
+        IEnumerable<QueueItem> q = snapshotQueueItems;
 
         if (recordView == DashboardView.QuotesOnly)
             q = q.Where(x => x.RecordType != QuoteRecordType.Lead);
         else if (recordView == DashboardView.LeadsOnly)
             q = q.Where(x => x.RecordType == QuoteRecordType.Lead);
 
-        if (isAdmin && !string.IsNullOrWhiteSpace(selectedOwnerId))
-            q = q.Where(x => (x.OwnerId ?? "") == selectedOwnerId);
-
         if (!string.IsNullOrWhiteSpace(searchText))
         {
-            var s = searchText.Trim();
-
-            q = q.Where(x =>
-                (x.Client?.CompanyName ?? x.ClientName ?? x.SenderEmail ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
-                (x.QuoteReference ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
-                (x.Subject ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
-                (x.SenderEmail ?? "").Contains(s, StringComparison.OrdinalIgnoreCase));
+            var s = searchText.Trim().ToLowerInvariant();
+            q = q.Where(x => x.SearchText.Contains(s, StringComparison.OrdinalIgnoreCase));
         }
 
-        return q;
-    }
-
-    private void ComputeKpis()
-    {
-        var scoped = ScopedRecords().ToList();
-
-        var now = DateTime.UtcNow;
         var todayLocal = DateTime.Now.Date;
         var todayUtcStart = DateTime.SpecifyKind(todayLocal, DateTimeKind.Local).ToUniversalTime();
         var todayUtcEnd = DateTime.SpecifyKind(todayLocal.AddDays(1), DateTimeKind.Local).ToUniversalTime();
-
-        var activeQuotes = scoped
-            .Where(q => q.RecordType != QuoteRecordType.Lead)
-            .Where(q => !IsClosedStatus(q.Status))
-            .ToList();
-
-        kpiActiveQuotesCount = activeQuotes.Count;
-        kpiPipelineValue = activeQuotes.Sum(q => q.QuoteValue ?? 0m);
-
-        var monthStartLocal = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
-        var monthStartUtc = DateTime.SpecifyKind(monthStartLocal, DateTimeKind.Local).ToUniversalTime();
-
-        var wonThisMonth = scoped
-            .Where(q => q.RecordType != QuoteRecordType.Lead)
-            .Where(q => q.Status.ToString().Contains("Won", StringComparison.OrdinalIgnoreCase))
-            .Where(q => q.UpdatedAt >= monthStartUtc)
-            .ToList();
-
-        kpiWonCountThisMonth = wonThisMonth.Count;
-        kpiWonThisMonth = wonThisMonth.Sum(q => q.QuoteValue ?? 0m);
-
-        var actionable = scoped.Where(q => !IsClosedStatus(q.Status)).ToList();
-
-        var overdue = actionable
-            .Where(q => q.NextFollowUpDate is DateTime nextDate && nextDate < todayUtcStart)
-            .ToList();
-
-        var dueToday = actionable
-            .Where(q => q.NextFollowUpDate is DateTime nextDate && nextDate >= todayUtcStart && nextDate < todayUtcEnd)
-            .ToList();
-
-        kpiOverdueCount = overdue.Count;
-        kpiOverdueValue = overdue.Where(q => q.RecordType != QuoteRecordType.Lead).Sum(q => q.QuoteValue ?? 0m);
-
-        kpiDueTodayCount = dueToday.Count;
-        kpiDueTodayValue = dueToday.Where(q => q.RecordType != QuoteRecordType.Lead).Sum(q => q.QuoteValue ?? 0m);
-
-        var sevenDaysAgoUtc = now.AddDays(-7);
-        var leads7d = scoped
-            .Where(q => q.RecordType == QuoteRecordType.Lead)
-            .Where(q => q.CreatedAt >= sevenDaysAgoUtc)
-            .ToList();
-
-        kpiNewLeads7d = leads7d.Count;
-        kpiUnassignedLeads = leads7d.Count(q => string.IsNullOrWhiteSpace(q.OwnerId));
-
-        kpiUnassignedCount = actionable.Count(q => string.IsNullOrWhiteSpace(q.OwnerId));
-        kpiHighValueCount = activeQuotes.Count(q => (q.QuoteValue ?? 0m) >= 2000m);
-        kpiMissingFollowUpCount = actionable.Count(q => !q.NextFollowUpDate.HasValue);
-        kpiValueTbd = activeQuotes.Count(q => !q.QuoteValue.HasValue || q.QuoteValue.Value <= 0);
-        kpiMissingClientLink = activeQuotes.Count(q => !q.ClientId.HasValue);
-    }
-
-    private IEnumerable<QueueItem> BaseFilteredItems()
-    {
-        var q = ScopedRecords();
-
-        var items = q.Where(x => !IsClosedStatus(x.Status)).Select(MapQueueItem).ToList();
 
         if (activeChip != Chip.None)
         {
-            var todayLocal = DateTime.Now.Date;
-            var todayUtcStart = DateTime.SpecifyKind(todayLocal, DateTimeKind.Local).ToUniversalTime();
-            var todayUtcEnd = DateTime.SpecifyKind(todayLocal.AddDays(1), DateTimeKind.Local).ToUniversalTime();
-
-            items = activeChip switch
+            q = activeChip switch
             {
-                Chip.Overdue => items.Where(i => i.DueUtc.HasValue && i.DueUtc.Value < todayUtcStart).ToList(),
-                Chip.DueToday => items.Where(i => i.DueUtc.HasValue && i.DueUtc.Value >= todayUtcStart && i.DueUtc.Value < todayUtcEnd).ToList(),
-                Chip.HighValue => items.Where(i => i.RecordType == QuoteRecordType.OutgoingQuote && (i.Value ?? 0m) >= 2000m).ToList(),
-                Chip.Unassigned => items.Where(i => string.IsNullOrWhiteSpace(i.OwnerId)).ToList(),
-                Chip.MissingFollowUp => items.Where(i => !i.DueUtc.HasValue).ToList(),
-                _ => items
+                Chip.Overdue => q.Where(i => i.DueUtc.HasValue && i.DueUtc.Value < todayUtcStart),
+                Chip.DueToday => q.Where(i => i.DueUtc.HasValue && i.DueUtc.Value >= todayUtcStart && i.DueUtc.Value < todayUtcEnd),
+                Chip.HighValue => q.Where(i => i.RecordType == QuoteRecordType.OutgoingQuote && (i.Value ?? 0m) >= 2000m),
+                Chip.Unassigned => q.Where(i => string.IsNullOrWhiteSpace(i.OwnerId)),
+                Chip.MissingFollowUp => q.Where(i => !i.DueUtc.HasValue),
+                _ => q
             };
         }
 
-        return items;
-    }
-
-    private IEnumerable<QueueItem> ActionQueue()
-    {
-        var todayLocal = DateTime.Now.Date;
-        var todayUtcStart = DateTime.SpecifyKind(todayLocal, DateTimeKind.Local).ToUniversalTime();
-        var todayUtcEnd = DateTime.SpecifyKind(todayLocal.AddDays(1), DateTimeKind.Local).ToUniversalTime();
-
-        var items = BaseFilteredItems();
-
-        return items
+        return q
             .OrderByDescending(i => i.DueUtc.HasValue && i.DueUtc.Value < todayUtcStart)
             .ThenByDescending(i => i.DueUtc.HasValue && i.DueUtc.Value >= todayUtcStart && i.DueUtc.Value < todayUtcEnd)
             .ThenByDescending(i => (i.Value ?? 0m) >= 2000m)
             .ThenByDescending(i => i.CreatedAtUtc);
-    }
-
-    private IEnumerable<ActivityEvent> RecentActivity()
-    {
-        var events = new List<ActivityEvent>();
-
-        foreach (var q in ScopedRecords())
-        {
-            if (q.FollowUps == null) continue;
-
-            foreach (var f in q.FollowUps)
-            {
-                var link = q.RecordType == QuoteRecordType.Lead ? "/lead/" + q.Id : "/quote/" + q.Id;
-                var title = (q.Client?.CompanyName ?? q.ClientName ?? q.SenderEmail ?? "Record") + " • " + (q.RecordType == QuoteRecordType.Lead ? "Lead" : "Quote");
-
-                events.Add(new ActivityEvent
-                {
-                    WhenUtc = f.CreatedAt,
-                    WhenLocal = f.CreatedAt.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt"),
-                    Title = title,
-                    Details = f.Notes ?? "",
-                    Link = link
-                });
-            }
-        }
-
-        return events.OrderByDescending(e => e.WhenUtc);
-    }
-
-    private IEnumerable<RadarRow> StatusRadarRows()
-    {
-        var openQuotes = ScopedRecords()
-            .Where(q => q.RecordType != QuoteRecordType.Lead)
-            .Where(q => !IsClosedStatus(q.Status))
-            .ToList();
-
-        if (openQuotes.Count == 0)
-            return new List<RadarRow>();
-
-        decimal total = openQuotes.Sum(x => x.QuoteValue ?? 0m);
-        if (total <= 0) total = 1;
-
-        var groups = openQuotes
-            .GroupBy(x => x.Status.ToString())
-            .Select(g =>
-            {
-                var v = g.Sum(x => x.QuoteValue ?? 0m);
-                var pct = Math.Round((double)(v / total) * 100.0, 0);
-                return new RadarRow { Label = g.Key, Count = g.Count(), Percent = pct, ValueText = "BHD " + v.ToString("N0") };
-            })
-            .OrderByDescending(x => x.Count)
-            .Take(6)
-            .ToList();
-
-        return groups;
-    }
-
-    private IEnumerable<RadarRow> AgingRadarRows()
-    {
-        var openQuotes = ScopedRecords()
-            .Where(q => q.RecordType != QuoteRecordType.Lead)
-            .Where(q => !IsClosedStatus(q.Status))
-            .ToList();
-
-        if (openQuotes.Count == 0)
-            return new List<RadarRow>();
-
-        decimal total = openQuotes.Sum(x => x.QuoteValue ?? 0m);
-        if (total <= 0) total = 1;
-
-        DateTime nowUtc = DateTime.UtcNow;
-
-        var buckets = new[]
-        {
-            new { Label = "0–3 days", Min = 0, Max = 3 },
-            new { Label = "4–7 days", Min = 4, Max = 7 },
-            new { Label = "8–14 days", Min = 8, Max = 14 },
-            new { Label = "15–30 days", Min = 15, Max = 30 },
-            new { Label = "30+ days", Min = 31, Max = 9999 }
-        };
-
-        var rows = new List<RadarRow>();
-
-        foreach (var b in buckets)
-        {
-            var inBucket = openQuotes.Where(q =>
-            {
-                var age = (nowUtc - q.CreatedAt).TotalDays;
-                return age >= b.Min && age <= b.Max;
-            }).ToList();
-
-            var v = inBucket.Sum(x => x.QuoteValue ?? 0m);
-            var pct = Math.Round((double)(v / total) * 100.0, 0);
-
-            rows.Add(new RadarRow
-            {
-                Label = b.Label,
-                Count = inBucket.Count,
-                Percent = pct,
-                ValueText = "BHD " + v.ToString("N0")
-            });
-        }
-
-        return rows;
     }
 
     private void OpenItem(QueueItem item)
@@ -894,65 +785,37 @@ else
         };
     }
 
-    private QueueItem MapQueueItem(Quote q)
+    private QueueItem MapQueueItem(CommandCenterQueueItemDto item)
     {
-        string recordLabel = q.RecordType == QuoteRecordType.Lead ? "Lead" : "Quote";
-        string statusLabel = q.Status.ToString();
-
-        string ownerLabel = q.Owner?.FullName ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(ownerLabel))
-        {
-            if (!string.IsNullOrWhiteSpace(q.OwnerId))
-                ownerLabel = systemUsers.FirstOrDefault(u => u.Id == q.OwnerId)?.FullName ?? "Assigned";
-            else
-                ownerLabel = "Unassigned";
-        }
-
-        string clientLabel = q.Client?.CompanyName ?? q.ClientName ?? q.SenderEmail ?? "Unknown";
-
-        string valueText = q.RecordType == QuoteRecordType.Lead
-            ? "—"
-            : (q.QuoteValue.HasValue && q.QuoteValue.Value > 0 ? $"{q.Currency} {q.QuoteValue.Value:N2}" : "TBD");
-
-        string dueText = q.NextFollowUpDate.HasValue
-            ? q.NextFollowUpDate.Value.ToLocalTime().ToString("dd MMM yyyy")
-            : "Not set";
-
-        string lastNote = "—";
-        if (q.FollowUps != null && q.FollowUps.Count > 0)
-        {
-            var ln = q.FollowUps.OrderByDescending(x => x.CreatedAt).First();
-            lastNote = (ln.Notes ?? "").Trim();
-            if (lastNote.Length > 60) lastNote = lastNote.Substring(0, 60) + "...";
-        }
-
         return new QueueItem
         {
-            Id = q.Id,
-            RecordType = q.RecordType,
-            RecordLabel = recordLabel,
-            StatusLabel = statusLabel,
-            OwnerId = q.OwnerId ?? "",
-            OwnerLabel = ownerLabel,
-            ClientLabel = clientLabel,
-            Subject = q.Subject ?? "",
-            DueUtc = q.NextFollowUpDate,
-            DueLocalText = dueText,
-            Value = q.QuoteValue,
-            ValueText = valueText,
-            CreatedAtUtc = q.CreatedAt,
-            LastNotePreview = lastNote
+            Id = item.QuoteId,
+            RecordType = item.RecordType,
+            RecordLabel = item.RecordLabel,
+            StatusLabel = item.StatusLabel,
+            OwnerId = item.OwnerId,
+            OwnerLabel = item.OwnerLabel,
+            ClientLabel = item.ClientLabel,
+            Subject = item.Subject,
+            DueUtc = item.DueUtc,
+            DueLocalText = item.DueLocalText,
+            Value = item.Value,
+            ValueText = item.ValueText,
+            CreatedAtUtc = item.CreatedAtUtc,
+            LastNotePreview = item.LastNotePreview,
+            SearchText = item.SearchText
         };
     }
 
-    private bool IsClosedStatus(QuoteStatus status)
+    private RadarRow MapRadarRow(CommandCenterRadarItemDto item)
     {
-        var s = status.ToString();
-        if (s.Contains("Won", StringComparison.OrdinalIgnoreCase)) return true;
-        if (s.Contains("Lost", StringComparison.OrdinalIgnoreCase)) return true;
-        if (s.Contains("Cancelled", StringComparison.OrdinalIgnoreCase)) return true;
-        if (s.Contains("Closed", StringComparison.OrdinalIgnoreCase)) return true;
-        return false;
+        return new RadarRow
+        {
+            Label = item.Label,
+            Count = item.Count,
+            Percent = item.Percent,
+            ValueText = item.ValueText
+        };
     }
 
     private enum DashboardView { All, QuotesOnly, LeadsOnly }
@@ -974,6 +837,7 @@ else
         public string ValueText { get; set; } = "";
         public DateTime CreatedAtUtc { get; set; }
         public string LastNotePreview { get; set; } = "";
+        public string SearchText { get; set; } = "";
     }
 
     private class RadarRow

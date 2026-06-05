@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using QuoteTrack.Infrastructure.Data;
@@ -11,9 +12,11 @@ using QuoteTrack.Infrastructure.Data;
 namespace QuoteTrack.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260605182753_AddCommandCenterSnapshots")]
+    partial class AddCommandCenterSnapshots
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -928,158 +931,6 @@ namespace QuoteTrack.Infrastructure.Migrations
                     b.HasIndex("QuoteId", "OccurredAt");
 
                     b.ToTable("QuoteEvents");
-                });
-
-            modelBuilder.Entity("QuoteTrack.Domain.Entities.QuoteListItem", b =>
-                {
-                    b.Property<Guid>("QuoteId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ClientId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ClientName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("DeleteRequestReason")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("DeleteRequestedByUserId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("EmailReceivedDateTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsClosed")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsDeleteRequested")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsUnassigned")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime?>("LastNoteAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LastNotePreview")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("LeadSource")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("MissingClientLink")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("MissingFollowUp")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime?>("NextFollowUpDate")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("OwnerId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("OwnerName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("QuoteReference")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<decimal?>("QuoteValue")
-                        .HasColumnType("numeric");
-
-                    b.Property<int>("RecordType")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("RefreshedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("RepCompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("SearchText")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("SenderEmail")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("SenderName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Subject")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("ValueTbd")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("WinProbability")
-                        .HasColumnType("integer");
-
-                    b.HasKey("QuoteId");
-
-                    b.HasIndex("EmailReceivedDateTime");
-
-                    b.HasIndex("LastNoteAt");
-
-                    b.HasIndex("NextFollowUpDate");
-
-                    b.HasIndex("OwnerId", "IsDeleteRequested", "CreatedAt");
-
-                    b.HasIndex("RecordType", "IsDeleteRequested", "CreatedAt");
-
-                    b.HasIndex("RecordType", "Status", "IsDeleteRequested", "OwnerId");
-
-                    b.ToTable("QuoteListItems");
-                });
-
-            modelBuilder.Entity("QuoteTrack.Domain.Entities.ReadModelState", b =>
-                {
-                    b.Property<string>("Key")
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsRefreshing")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsStale")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("LastError")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("LastRefreshedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Key");
-
-                    b.HasIndex("IsStale");
-
-                    b.ToTable("ReadModelStates");
                 });
 
             modelBuilder.Entity("QuoteTrack.Domain.Entities.Rfq", b =>

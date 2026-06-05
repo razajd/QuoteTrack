@@ -1,12 +1,14 @@
 ﻿@page "/myleads"
 @rendermode InteractiveServer
 @attribute [Authorize]
+
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
 @using QuoteTrack.Application.Interfaces
 @using QuoteTrack.Domain.Entities
 @using QuoteTrack.Domain.Enums
+
 @inject IQuoteService QuoteService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
@@ -22,8 +24,13 @@
         </h2>
         <div class="text-muted small">Sorted by newest by default. Click any column title to sort.</div>
     </div>
-    <div>
-        <span class="badge bg-primary rounded-pill fs-6 px-3 py-2 shadow-sm">@FilteredLeads().Count() Active</span>
+
+    <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-success fw-bold shadow-sm" @onclick="OpenNewLeadPage">
+            <i class="bi bi-plus-circle me-1"></i> New Lead
+        </button>
+
+        <span class="badge bg-primary rounded-pill fs-6 px-3 py-2 shadow-sm">@totalCount Active</span>
     </div>
 </div>
 
@@ -32,7 +39,7 @@
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-md-5">
+                <div class="col-md-4">
                     <label class="form-label small fw-bold text-muted">Representative</label>
                     <select class="form-select" @bind="selectedOwnerId">
                         <option value="">All Representatives</option>
@@ -44,13 +51,19 @@
                     </select>
                 </div>
 
-                <div class="col-md-5">
+                <div class="col-md-4">
                     <label class="form-label small fw-bold text-muted">Search</label>
                     <input class="form-control" @bind="searchText" placeholder="Client / ref / subject / sender" />
                 </div>
 
                 <div class="col-md-2 d-flex align-items-end">
-                    <button class="btn btn-outline-secondary w-100" @onclick="ClearFilters">
+                    <button class="btn btn-primary w-100" @onclick="ApplyFiltersAsync">
+                        Apply
+                    </button>
+                </div>
+
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-outline-secondary w-100" @onclick="ClearFiltersAsync">
                         Clear
                     </button>
                 </div>
@@ -63,15 +76,17 @@
 {
     <div class="alert @(uiOk ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm">
         @uiMessage
-        <button type="button" class="btn-close" @onclick="() => uiMessage = string.Empty"></button>
+        <button type="button" class="btn-close" @onclick="DismissMessage"></button>
     </div>
 }
 
 @if (isLoading)
 {
-    <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
+    <div class="text-center mt-5">
+        <div class="spinner-border text-primary"></div>
+    </div>
 }
-else if (!FilteredLeads().Any())
+else if (!myActiveLeads.Any())
 {
     <div class="card shadow-sm border-0 text-center py-5">
         <div class="card-body">
@@ -90,7 +105,7 @@ else
                     <thead class="table-dark">
                         <tr>
                             <th class="ps-3" style="min-width: 240px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(LeadSortColumn.ClientRef)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(LeadSortColumn.ClientRef)">
                                     Client / Ref @SortIcon(LeadSortColumn.ClientRef)
                                 </a>
                             </th>
@@ -98,43 +113,48 @@ else
                             @if (isAdminOrHead)
                             {
                                 <th style="min-width: 180px;">
-                                    <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(LeadSortColumn.Owner)">
+                                    <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(LeadSortColumn.Owner)">
                                         Representative @SortIcon(LeadSortColumn.Owner)
                                     </a>
                                 </th>
                             }
 
                             <th style="min-width: 120px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(LeadSortColumn.Value)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(LeadSortColumn.Value)">
                                     Value @SortIcon(LeadSortColumn.Value)
                                 </a>
                             </th>
+
                             <th style="min-width: 120px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(LeadSortColumn.Status)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(LeadSortColumn.Status)">
                                     Status @SortIcon(LeadSortColumn.Status)
                                 </a>
                             </th>
+
                             <th style="min-width: 160px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(LeadSortColumn.NextDue)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(LeadSortColumn.NextDue)">
                                     Next Action Due @SortIcon(LeadSortColumn.NextDue)
                                 </a>
                             </th>
+
                             <th style="min-width: 180px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(LeadSortColumn.Received)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(LeadSortColumn.Received)">
                                     Received @SortIcon(LeadSortColumn.Received)
                                 </a>
                             </th>
+
                             <th style="min-width: 280px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(LeadSortColumn.LastNote)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(LeadSortColumn.LastNote)">
                                     Last Note @SortIcon(LeadSortColumn.LastNote)
                                 </a>
                             </th>
+
                             <th style="min-width: 360px;">Quick Note + Due</th>
                             <th class="text-end pe-3" style="min-width: 120px;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var lead in SortedLeads())
+                        @foreach (var lead in myActiveLeads)
                         {
                             var isOverdue = lead.NextFollowUpDate.HasValue && lead.NextFollowUpDate.Value < DateTime.UtcNow;
                             var lastNote = GetLastNote(lead);
@@ -151,7 +171,7 @@ else
                                 @if (isAdminOrHead)
                                 {
                                     <td>
-                                        <span class="fw-bold">@(GetOwnerName(lead))</span>
+                                        <span class="fw-bold">@GetOwnerName(lead)</span>
                                     </td>
                                 }
 
@@ -212,7 +232,7 @@ else
                                                    @bind="dueDraft[lead.Id]"
                                                    @bind:format="yyyy-MM-dd" />
                                             <button class="btn btn-sm btn-warning fw-bold shadow-sm"
-                                                    @onclick="() => SaveQuickNote(lead)">
+                                                    @onclick="() => SaveQuickNoteAsync(lead)">
                                                 Save Note
                                             </button>
                                             <button class="btn btn-sm btn-outline-secondary fw-bold"
@@ -234,6 +254,21 @@ else
                         }
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <div class="card-footer bg-white border-top">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="small text-muted">
+                    Showing page <b>@currentPage</b> of <b>@totalPages</b> • Total records: <b>@totalCount</b>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToPageAsync(1)" disabled="@(currentPage <= 1)">First</button>
+                    <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToPageAsync(currentPage - 1)" disabled="@(currentPage <= 1)">Prev</button>
+                    <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToPageAsync(currentPage + 1)" disabled="@(currentPage >= totalPages)">Next</button>
+                    <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToPageAsync(totalPages)" disabled="@(currentPage >= totalPages)">Last</button>
+                </div>
             </div>
         </div>
     </div>
@@ -262,9 +297,15 @@ else
     private string selectedOwnerId = "";
     private string searchText = "";
 
+    private int currentPage = 1;
+    private int pageSize = 20;
+    private int totalCount = 0;
+    private int totalPages = 1;
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+
         if (authState.User.Identity != null && authState.User.Identity.IsAuthenticated)
         {
             currentUserId = UserManager.GetUserId(authState.User);
@@ -278,87 +319,64 @@ else
             isAdminOrHead = isAdmin || isHead;
         }
 
-        await LoadData();
+        await LoadDataAsync(1);
         isLoading = false;
     }
 
-    private async Task LoadData()
+    private async Task LoadDataAsync(int pageToLoad)
     {
-        if (string.IsNullOrEmpty(currentUserId) && !isAdminOrHead) return;
+        if (string.IsNullOrWhiteSpace(currentUserId) && !isAdminOrHead)
+            return;
+
+        if (pageToLoad < 1)
+            pageToLoad = 1;
 
         systemUsers = await QuoteService.GetSystemUsersAsync();
 
-        var allQuotes = await QuoteService.GetAllQuotesAsync(isAdminOrHead ? null : currentUserId, isAdminOrHead);
+        totalCount = await QuoteService.GetActiveLeadsPageCountAsync(
+            currentUserId,
+            isAdminOrHead,
+            selectedOwnerId,
+            searchText);
 
-        myActiveLeads = allQuotes.Where(q =>
-    q.RecordType == QuoteRecordType.Lead &&
-    !q.IsDeleteRequested &&
-    q.Status != QuoteStatus.LeadClosed &&
-    q.Status != QuoteStatus.LeadRepCompleted &&
-    q.Status != QuoteStatus.Won &&
-    q.Status != QuoteStatus.Lost &&
-    q.Status != QuoteStatus.Cancelled &&
-    q.Status != QuoteStatus.Merged
-).ToList();
+        totalPages = totalCount <= 0 ? 1 : (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        if (pageToLoad > totalPages)
+            pageToLoad = totalPages;
+
+        currentPage = pageToLoad;
+
+        myActiveLeads = await QuoteService.GetActiveLeadsPageAsync(
+            currentUserId,
+            isAdminOrHead,
+            currentPage,
+            pageSize,
+            selectedOwnerId,
+            searchText,
+            sortColumn.ToString(),
+            sortAsc);
 
         foreach (var q in myActiveLeads)
         {
-            if (!noteDraft.ContainsKey(q.Id)) noteDraft[q.Id] = "";
+            if (!noteDraft.ContainsKey(q.Id))
+                noteDraft[q.Id] = "";
+
             if (!dueDraft.ContainsKey(q.Id))
-            {
                 dueDraft[q.Id] = q.NextFollowUpDate?.ToLocalTime().Date ?? DateTime.Today.AddDays(1);
-            }
         }
     }
 
-    private IEnumerable<Quote> FilteredLeads()
+    private async Task ApplyFiltersAsync()
     {
-        IEnumerable<Quote> q = myActiveLeads;
-
-        if (isAdminOrHead)
-        {
-            if (!string.IsNullOrWhiteSpace(selectedOwnerId))
-            {
-                if (selectedOwnerId == UnassignedOwnerValue)
-                    q = q.Where(x => string.IsNullOrWhiteSpace(x.OwnerId));
-                else
-                    q = q.Where(x => x.OwnerId == selectedOwnerId);
-            }
-
-            if (!string.IsNullOrWhiteSpace(searchText))
-            {
-                var s = searchText.Trim();
-
-                q = q.Where(x =>
-                    (x.Client?.CompanyName ?? x.ClientName ?? x.SenderEmail ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
-                    (x.QuoteReference ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
-                    (x.Subject ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
-                    (x.SenderEmail ?? "").Contains(s, StringComparison.OrdinalIgnoreCase));
-            }
-        }
-
-        return q;
+        await LoadDataAsync(1);
     }
 
-    private IEnumerable<Quote> SortedLeads()
+    private async Task GoToPageAsync(int page)
     {
-        var q = FilteredLeads();
-
-        Func<Quote, object?> key = sortColumn switch
-        {
-            LeadSortColumn.ClientRef => (x) => (x.Client?.CompanyName ?? x.ClientName ?? x.SenderEmail ?? ""),
-            LeadSortColumn.Owner => (x) => GetOwnerName(x),
-            LeadSortColumn.Value => (x) => x.QuoteValue ?? 0m,
-            LeadSortColumn.Status => (x) => x.Status.ToString(),
-            LeadSortColumn.NextDue => (x) => x.NextFollowUpDate ?? DateTime.MaxValue,
-            LeadSortColumn.LastNote => (x) => GetLastNote(x)?.CreatedAt ?? DateTime.MinValue,
-            _ => (x) => x.EmailReceivedDateTime
-        };
-
-        return sortAsc ? q.OrderBy(key) : q.OrderByDescending(key);
+        await LoadDataAsync(page);
     }
 
-    private void SetSort(LeadSortColumn col)
+    private async Task SetSortAsync(LeadSortColumn col)
     {
         if (sortColumn == col)
             sortAsc = !sortAsc;
@@ -367,6 +385,8 @@ else
             sortColumn = col;
             sortAsc = col is LeadSortColumn.Received or LeadSortColumn.NextDue or LeadSortColumn.LastNote ? false : true;
         }
+
+        await LoadDataAsync(1);
     }
 
     private string SortIcon(LeadSortColumn col)
@@ -395,7 +415,7 @@ else
         return "Unassigned";
     }
 
-    private async Task SaveQuickNote(Quote lead)
+    private async Task SaveQuickNoteAsync(Quote lead)
     {
         uiMessage = "";
         uiOk = true;
@@ -435,7 +455,8 @@ else
             noteDraft[lead.Id] = "";
             uiOk = true;
             uiMessage = $"Note saved for {(string.IsNullOrWhiteSpace(lead.QuoteReference) ? lead.Id.ToString() : lead.QuoteReference)}";
-            await LoadData();
+
+            await LoadDataAsync(currentPage);
             StateHasChanged();
         }
         catch (Exception ex)
@@ -447,19 +468,33 @@ else
 
     private void ClearDraft(Guid id)
     {
-        if (noteDraft.ContainsKey(id)) noteDraft[id] = "";
-        if (dueDraft.ContainsKey(id)) dueDraft[id] = DateTime.Today.AddDays(1);
+        if (noteDraft.ContainsKey(id))
+            noteDraft[id] = "";
+
+        if (dueDraft.ContainsKey(id))
+            dueDraft[id] = DateTime.Today.AddDays(1);
     }
 
-    private void ClearFilters()
+    private async Task ClearFiltersAsync()
     {
         selectedOwnerId = "";
         searchText = "";
+        await LoadDataAsync(1);
+    }
+
+    private void DismissMessage()
+    {
+        uiMessage = string.Empty;
     }
 
     private void NavigateToDetails(Guid id)
     {
         NavManager.NavigateTo($"/lead/{id}");
+    }
+
+    private void OpenNewLeadPage()
+    {
+        NavManager.NavigateTo("/leads");
     }
 
     private enum LeadSortColumn

@@ -37,6 +37,12 @@ namespace QuoteTrack.Domain.Entities
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+        public DateTime? AssignedAt { get; set; }
+        public DateTime? FirstContactedAt { get; set; }
+        public DateTime? QuotedAt { get; set; }
+        public DateTime? WonAt { get; set; }
+        public DateTime? LostAt { get; set; }
+
         public int WinProbability { get; set; } = 10;
 
         public bool IsDeleteRequested { get; set; } = false;
@@ -59,6 +65,7 @@ namespace QuoteTrack.Domain.Entities
 
         public ICollection<Attachment> Attachments { get; set; } = new List<Attachment>();
         public ICollection<FollowUp> FollowUps { get; set; } = new List<FollowUp>();
+        public ICollection<QuoteEvent> Events { get; set; } = new List<QuoteEvent>();
 
         public Guid? ClientId { get; set; }
         public Client? Client { get; set; }

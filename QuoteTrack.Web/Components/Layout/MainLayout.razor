@@ -370,21 +370,13 @@
         try
         {
             using var scope = ScopeFactory.CreateScope();
-            var clientSvc = scope.ServiceProvider.GetRequiredService<IClientService>();
             var quoteSvc = scope.ServiceProvider.GetRequiredService<IQuoteService>();
 
-            var clients = await clientSvc.GetAllClientsAsync();
-            pendingClientCount = clients.Count(c => c.ApprovalStatus == QuoteTrack.Domain.Enums.ClientApprovalStatus.Pending);
+            var counts = await quoteSvc.GetNotificationCountsAsync();
 
-            var quotes = await quoteSvc.GetAllQuotesAsync(null, true);
-
-            unassignedLeadCount = quotes.Count(q =>
-                string.IsNullOrEmpty(q.OwnerId) &&
-                !q.IsDeleteRequested &&
-                q.Status != QuoteTrack.Domain.Enums.QuoteStatus.Won &&
-                q.Status != QuoteTrack.Domain.Enums.QuoteStatus.Lost);
-
-            pendingDeletionCount = quotes.Count(q => q.IsDeleteRequested);
+            pendingClientCount = counts.PendingClientCount;
+            unassignedLeadCount = counts.UnassignedLeadCount;
+            pendingDeletionCount = counts.PendingDeletionCount;
 
             await InvokeAsync(StateHasChanged);
         }

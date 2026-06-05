@@ -2,10 +2,11 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Roles = "Admin,DeptHead,DepartmentHead,Head,Manager")]
 @using Microsoft.AspNetCore.Authorization
+@using QuoteTrack.Application.DTOs
 @using QuoteTrack.Application.Interfaces
 @using QuoteTrack.Domain.Entities
 @using QuoteTrack.Domain.Enums
-@inject IQuoteService QuoteService
+@inject IManagementDashboardService ManagementDashboardService
 @inject NavigationManager NavManager
 
 <PageTitle>Management Command Center</PageTitle>
@@ -184,7 +185,7 @@ else
     private int quoteOverdueCount = 0;
     private int pendingLeadClosureCount = 0;
 
-    private List<RepStat> teamStats = new();
+    private List<ManagementRepStatDto> teamStats = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -195,86 +196,18 @@ else
     {
         isLoading = true;
 
-        var allUsersRaw = await QuoteService.GetSystemUsersAsync();
-        var allUsers = allUsersRaw.Where(u => u.IsActive).ToList();
+        var dashboard = await ManagementDashboardService.GetOverviewAsync();
 
-        var allQuotes = await QuoteService.GetAllQuotesAsync(null, true);
-        var now = DateTime.UtcNow;
-
-        bool IsClosed(Quote q) =>
-            q.Status == QuoteStatus.Won ||
-            q.Status == QuoteStatus.Lost ||
-            q.Status == QuoteStatus.Cancelled ||
-            q.Status == QuoteStatus.LeadClosed ||
-            q.Status == QuoteStatus.Merged;
-
-        var activeRecords = allQuotes
-            .Where(q => !q.IsDeleteRequested)
-            .Where(q => !IsClosed(q))
-            .ToList();
-
-        var activeQuotes = activeRecords
-            .Where(q => q.RecordType == QuoteRecordType.OutgoingQuote)
-            .ToList();
-
-        var activeLeads = activeRecords
-            .Where(q => q.RecordType == QuoteRecordType.Lead)
-            .ToList();
-
-        pendingLeadClosureCount = allQuotes.Count(q =>
-            q.RecordType == QuoteRecordType.Lead &&
-            !q.IsDeleteRequested &&
-            q.Status == QuoteStatus.LeadRepCompleted);
-
-        totalPipelineValue = activeQuotes.Sum(q => q.QuoteValue ?? 0);
-        unassignedCount = activeLeads.Count(q => string.IsNullOrWhiteSpace(q.OwnerId));
-
-        leadDueCount = activeLeads.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= now);
-        leadOverdueCount = activeLeads.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < now);
-
-        quoteDueCount = activeQuotes.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= now);
-        quoteOverdueCount = activeQuotes.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < now);
-
-        overdueTasksCount = activeRecords.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < now);
-
-        int totalWon = allQuotes.Count(q => q.RecordType == QuoteRecordType.OutgoingQuote && q.Status == QuoteStatus.Won);
-        int totalLost = allQuotes.Count(q => q.RecordType == QuoteRecordType.OutgoingQuote && q.Status == QuoteStatus.Lost);
-        int totalDecided = totalWon + totalLost;
-
-        departmentWinRate = totalDecided > 0 ? ((double)totalWon / totalDecided) * 100 : 0;
-
-        teamStats.Clear();
-        var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
-
-        foreach (var user in allUsers)
-        {
-            var userRecords = allQuotes
-                .Where(q => q.OwnerId == user.Id && !q.IsDeleteRequested)
-                .ToList();
-
-            var userActive = userRecords.Where(q => !IsClosed(q) && q.Status != QuoteStatus.LeadRepCompleted).ToList();
-            var userQuotes = userRecords.Where(q => q.RecordType == QuoteRecordType.OutgoingQuote).ToList();
-            var userOpenQuotes = userQuotes.Where(q => !IsClosed(q)).ToList();
-            var userOpenLeads = userRecords.Where(q => q.RecordType == QuoteRecordType.Lead && !IsClosed(q) && q.Status != QuoteStatus.LeadRepCompleted).ToList();
-
-            int uWon = userQuotes.Count(q => q.Status == QuoteStatus.Won);
-            int uLost = userQuotes.Count(q => q.Status == QuoteStatus.Lost);
-            int uDecided = uWon + uLost;
-
-            teamStats.Add(new RepStat
-            {
-                UserId = user.Id,
-                RepName = user.FullName,
-                ActiveDeals = userActive.Count,
-                WonDeals = uWon,
-                WinRate = uDecided > 0 ? ((double)uWon / uDecided) * 100 : 0,
-                PipelineValue = userOpenQuotes.Sum(q => q.QuoteValue ?? 0),
-                OverdueTasks = userActive.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value < now),
-                LeadsDue = userOpenLeads.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= now),
-                QuotesDue = userOpenQuotes.Count(q => q.NextFollowUpDate.HasValue && q.NextFollowUpDate.Value <= now),
-                StaleDeals = userActive.Count(q => q.CreatedAt < thirtyDaysAgo)
-            });
-        }
+        totalPipelineValue = dashboard.TotalPipelineValue;
+        departmentWinRate = dashboard.DepartmentWinRate;
+        unassignedCount = dashboard.UnassignedCount;
+        overdueTasksCount = dashboard.OverdueTasksCount;
+        leadDueCount = dashboard.LeadDueCount;
+        leadOverdueCount = dashboard.LeadOverdueCount;
+        quoteDueCount = dashboard.QuoteDueCount;
+        quoteOverdueCount = dashboard.QuoteOverdueCount;
+        pendingLeadClosureCount = dashboard.PendingLeadClosureCount;
+        teamStats = dashboard.TeamStats;
 
         isLoading = false;
     }
@@ -289,17 +222,4 @@ else
         NavManager.NavigateTo("/admin/lead-closures");
     }
 
-    private class RepStat
-    {
-        public string UserId { get; set; } = string.Empty;
-        public string RepName { get; set; } = string.Empty;
-        public int ActiveDeals { get; set; }
-        public int WonDeals { get; set; }
-        public double WinRate { get; set; }
-        public decimal PipelineValue { get; set; }
-        public int OverdueTasks { get; set; }
-        public int LeadsDue { get; set; }
-        public int QuotesDue { get; set; }
-        public int StaleDeals { get; set; }
-    }
 }

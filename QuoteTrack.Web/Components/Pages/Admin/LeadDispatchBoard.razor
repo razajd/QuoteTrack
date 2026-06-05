@@ -234,16 +234,7 @@ else
 
     private async Task LoadBoardDataAsync()
     {
-        var allQuotes = await QuoteService.GetAllQuotesAsync(null, true);
-
-        // LEADS RULE:
-        // Dispatch board is for assigning Leads to reps.
-        // It must NOT include Outgoing Quotes.
-        activeQuotes = allQuotes.Where(q =>
-            q.RecordType == QuoteRecordType.Lead &&
-            q.Status != QuoteStatus.Won &&
-            q.Status != QuoteStatus.Lost &&
-            !q.IsDeleteRequested).ToList();
+        activeQuotes = await QuoteService.GetLeadDispatchBoardQuotesAsync();
 
         var allUsers = await UserManager.Users.ToListAsync();
         activeUsers = allUsers.Where(u => u.IsActive).OrderBy(u => u.FullName).ToList();
@@ -264,8 +255,13 @@ else
 
         if (draggedQuote != null && draggedQuote.OwnerId != newOwnerId)
         {
-            draggedQuote.OwnerId = newOwnerId;
-            await QuoteService.UpdateQuoteAsync(draggedQuote);
+            var quoteToUpdate = await QuoteService.GetQuoteByIdAsync(draggedQuote.Id);
+            if (quoteToUpdate != null)
+            {
+                quoteToUpdate.OwnerId = newOwnerId;
+                await QuoteService.UpdateQuoteAsync(quoteToUpdate);
+            }
+
             await LoadBoardDataAsync();
         }
         draggedQuote = null;
@@ -290,8 +286,13 @@ else
     {
         if (targetQuote != null && targetQuote.OwnerId != newOwnerId)
         {
-            targetQuote.OwnerId = newOwnerId;
-            await QuoteService.UpdateQuoteAsync(targetQuote);
+            var quoteToUpdate = await QuoteService.GetQuoteByIdAsync(targetQuote.Id);
+            if (quoteToUpdate != null)
+            {
+                quoteToUpdate.OwnerId = newOwnerId;
+                await QuoteService.UpdateQuoteAsync(quoteToUpdate);
+            }
+
             await LoadBoardDataAsync();
         }
         CloseMenu();

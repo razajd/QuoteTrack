@@ -169,8 +169,12 @@
 
         foreach (var quote in selectedQuotes)
         {
-            quote.OwnerId = toUserId;
-            await QuoteService.UpdateQuoteAsync(quote);
+            var quoteToUpdate = await QuoteService.GetQuoteByIdAsync(quote.Id);
+            if (quoteToUpdate == null)
+                continue;
+
+            quoteToUpdate.OwnerId = toUserId;
+            await QuoteService.UpdateQuoteAsync(quoteToUpdate);
 
             var fu = new FollowUp { Id = Guid.NewGuid(), QuoteId = quote.Id, DueDate = DateTime.UtcNow, Notes = transferNote, CreatedAt = DateTime.UtcNow };
             await QuoteService.AddFollowUpAsync(fu);

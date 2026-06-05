@@ -137,14 +137,7 @@ else
     {
         isLoading = true;
 
-        var all = await QuoteService.GetAllQuotesAsync(null, true);
-
-        pendingLeads = all
-            .Where(q => q.RecordType == QuoteRecordType.Lead)
-            .Where(q => !q.IsDeleteRequested)
-            .Where(q => q.Status == QuoteStatus.LeadRepCompleted)
-            .OrderByDescending(q => q.RepCompletedAt ?? q.UpdatedAt)
-            .ToList();
+        pendingLeads = await QuoteService.GetPendingLeadClosuresAsync();
 
         isLoading = false;
     }

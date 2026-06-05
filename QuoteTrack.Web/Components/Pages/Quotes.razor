@@ -19,10 +19,10 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <h2 class="mb-1"><i class="bi bi-files text-primary me-2"></i>Quotes</h2>
-        <div class="text-muted small">Default: newest first. Click any column title to sort.</div>
+        <div class="text-muted small">Newest first by default. Now paged for speed.</div>
     </div>
     <div>
-        <span class="badge bg-primary rounded-pill fs-6 px-3 py-2 shadow-sm">@FilteredQuotes().Count()</span>
+        <span class="badge bg-primary rounded-pill fs-6 px-3 py-2 shadow-sm">@totalCount</span>
     </div>
 </div>
 
@@ -31,7 +31,7 @@
     <div class="card shadow-sm border-0 mb-3">
         <div class="card-body">
             <div class="row g-3 align-items-end">
-                <div class="col-md-6">
+                <div class="col-md-5">
                     <label class="form-label small fw-bold text-muted">Filter by Salesperson (Owner)</label>
                     <select class="form-select" @bind="selectedOwnerId">
                         <option value="">All Salespersons</option>
@@ -42,13 +42,19 @@
                     </select>
                 </div>
 
-                <div class="col-md-4">
+                <div class="col-md-5">
                     <label class="form-label small fw-bold text-muted">Search (Client / Ref / Subject)</label>
                     <input class="form-control" @bind="searchText" placeholder="Type to filter..." />
                 </div>
 
-                <div class="col-md-2">
-                    <button class="btn btn-outline-secondary w-100 fw-bold" @onclick="ClearFilters">
+                <div class="col-md-1">
+                    <button class="btn btn-primary w-100 fw-bold" @onclick="ApplyFiltersAsync">
+                        Apply
+                    </button>
+                </div>
+
+                <div class="col-md-1">
+                    <button class="btn btn-outline-secondary w-100 fw-bold" @onclick="ClearFiltersAsync">
                         Clear
                     </button>
                 </div>
@@ -61,7 +67,7 @@
 {
     <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
 }
-else if (!FilteredQuotes().Any())
+else if (!pageQuotes.Any())
 {
     <div class="alert alert-info">No quotes found for the current filter.</div>
 }
@@ -74,25 +80,25 @@ else
                     <thead class="table-dark">
                         <tr>
                             <th class="ps-3" style="min-width:240px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Client)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(QuoteSortColumn.Client)">
                                     Client @SortIcon(QuoteSortColumn.Client)
                                 </a>
                             </th>
 
                             <th style="min-width:160px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Reference)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(QuoteSortColumn.Reference)">
                                     Reference @SortIcon(QuoteSortColumn.Reference)
                                 </a>
                             </th>
 
                             <th style="min-width:140px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Value)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(QuoteSortColumn.Value)">
                                     Value @SortIcon(QuoteSortColumn.Value)
                                 </a>
                             </th>
 
                             <th style="min-width:120px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Status)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(QuoteSortColumn.Status)">
                                     Status @SortIcon(QuoteSortColumn.Status)
                                 </a>
                             </th>
@@ -100,20 +106,20 @@ else
                             @if (isAdmin)
                             {
                                 <th style="min-width:180px;">
-                                    <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Owner)">
+                                    <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(QuoteSortColumn.Owner)">
                                         Owner @SortIcon(QuoteSortColumn.Owner)
                                     </a>
                                 </th>
                             }
 
                             <th style="min-width:160px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.NextDue)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(QuoteSortColumn.NextDue)">
                                     Next Due @SortIcon(QuoteSortColumn.NextDue)
                                 </a>
                             </th>
 
                             <th style="min-width:160px;">
-                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSort(QuoteSortColumn.Created)">
+                                <a href="javascript:void(0)" class="text-white text-decoration-none" @onclick="() => SetSortAsync(QuoteSortColumn.Created)">
                                     Created @SortIcon(QuoteSortColumn.Created)
                                 </a>
                             </th>
@@ -123,7 +129,7 @@ else
                     </thead>
 
                     <tbody>
-                        @foreach (var q in SortedQuotes())
+                        @foreach (var q in pageQuotes)
                         {
                             <tr>
                                 <td class="ps-3">
@@ -177,8 +183,30 @@ else
                             </tr>
                         }
                     </tbody>
-
                 </table>
+            </div>
+        </div>
+
+        <div class="card-footer bg-white border-top">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="small text-muted">
+                    Showing page <b>@currentPage</b> of <b>@totalPages</b> • Total records: <b>@totalCount</b>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToPageAsync(1)" disabled="@(currentPage <= 1)">
+                        First
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToPageAsync(currentPage - 1)" disabled="@(currentPage <= 1)">
+                        Prev
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToPageAsync(currentPage + 1)" disabled="@(currentPage >= totalPages)">
+                        Next
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm fw-bold" @onclick="() => GoToPageAsync(totalPages)" disabled="@(currentPage >= totalPages)">
+                        Last
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -187,19 +215,22 @@ else
 @code {
     private bool isLoading = true;
 
-    private List<Quote> quotes = new();
+    private List<Quote> pageQuotes = new();
     private List<ApplicationUser> systemUsers = new();
 
     private string? currentUserId;
     private bool isAdmin;
 
-    // filters
     private string selectedOwnerId = "";
     private string searchText = "";
 
-    // sorting
     private QuoteSortColumn sortColumn = QuoteSortColumn.Created;
-    private bool sortAsc = false; // newest first
+    private bool sortAsc = false;
+
+    private int currentPage = 1;
+    private int pageSize = 25;
+    private int totalCount = 0;
+    private int totalPages = 1;
 
     protected override async Task OnInitializedAsync()
     {
@@ -211,67 +242,61 @@ else
 
         systemUsers = await QuoteService.GetSystemUsersAsync();
 
-        // Get all for admin, otherwise just mine
-        quotes = await QuoteService.GetAllQuotesAsync(currentUserId, isAdmin);
+        await LoadPageAsync(1);
+    }
 
-        // Quotes page should show outgoing quotes only
-        quotes = quotes.Where(q => q.RecordType != QuoteRecordType.Lead).ToList();
+    private async Task LoadPageAsync(int pageNumber)
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        if (pageNumber < 1)
+            pageNumber = 1;
+
+        totalCount = await QuoteService.GetQuotesPageCountAsync(
+            currentUserId,
+            isAdmin,
+            selectedOwnerId,
+            searchText);
+
+        totalPages = totalCount <= 0 ? 1 : (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        if (pageNumber > totalPages)
+            pageNumber = totalPages;
+
+        currentPage = pageNumber;
+
+        pageQuotes = await QuoteService.GetQuotesPageAsync(
+            currentUserId,
+            isAdmin,
+            currentPage,
+            pageSize,
+            selectedOwnerId,
+            searchText,
+            sortColumn.ToString(),
+            sortAsc);
 
         isLoading = false;
     }
 
-    private void OpenQuote(Guid id)
+    private async Task ApplyFiltersAsync()
     {
-        Nav.NavigateTo("/quote/" + id);
+        await LoadPageAsync(1);
     }
 
-    private void ClearFilters()
+    private async Task ClearFiltersAsync()
     {
         selectedOwnerId = "";
         searchText = "";
+        await LoadPageAsync(1);
     }
 
-    private IEnumerable<Quote> FilteredQuotes()
+    private async Task GoToPageAsync(int page)
     {
-        IEnumerable<Quote> q = quotes;
-
-        if (isAdmin && !string.IsNullOrWhiteSpace(selectedOwnerId))
-        {
-            q = q.Where(x => (x.OwnerId ?? "") == selectedOwnerId);
-        }
-
-        if (!string.IsNullOrWhiteSpace(searchText))
-        {
-            var s = searchText.Trim();
-            q = q.Where(x =>
-                (x.Client?.CompanyName ?? x.ClientName ?? x.SenderEmail ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
-                (x.QuoteReference ?? "").Contains(s, StringComparison.OrdinalIgnoreCase) ||
-                (x.Subject ?? "").Contains(s, StringComparison.OrdinalIgnoreCase)
-            );
-        }
-
-        return q;
+        await LoadPageAsync(page);
     }
 
-    private IEnumerable<Quote> SortedQuotes()
-    {
-        var baseSet = FilteredQuotes();
-
-        Func<Quote, object?> key = sortColumn switch
-        {
-            QuoteSortColumn.Client => (x) => (x.Client?.CompanyName ?? x.ClientName ?? x.SenderEmail ?? ""),
-            QuoteSortColumn.Reference => (x) => x.QuoteReference ?? "",
-            QuoteSortColumn.Value => (x) => x.QuoteValue ?? 0m,
-            QuoteSortColumn.Status => (x) => x.Status.ToString(),
-            QuoteSortColumn.Owner => (x) => (x.Owner?.FullName ?? ""),
-            QuoteSortColumn.NextDue => (x) => x.NextFollowUpDate ?? DateTime.MaxValue,
-            _ => (x) => x.CreatedAt
-        };
-
-        return sortAsc ? baseSet.OrderBy(key) : baseSet.OrderByDescending(key);
-    }
-
-    private void SetSort(QuoteSortColumn col)
+    private async Task SetSortAsync(QuoteSortColumn col)
     {
         if (sortColumn == col)
         {
@@ -282,6 +307,13 @@ else
             sortColumn = col;
             sortAsc = col is QuoteSortColumn.Created or QuoteSortColumn.NextDue ? false : true;
         }
+
+        await LoadPageAsync(1);
+    }
+
+    private void OpenQuote(Guid id)
+    {
+        Nav.NavigateTo("/quote/" + id);
     }
 
     private string SortIcon(QuoteSortColumn col)
