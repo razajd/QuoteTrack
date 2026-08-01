@@ -67,6 +67,8 @@ builder.Services.AddScoped<IClientService, ClientService>();
 builder.Services.AddScoped<IManagementDashboardService, ManagementDashboardService>();
 builder.Services.AddScoped<ICommandCenterSnapshotService, CommandCenterSnapshotService>();
 builder.Services.AddScoped<IQuoteListReadModelService, QuoteListReadModelService>();
+builder.Services.AddScoped<IKpiReportService, KpiReportService>();
+builder.Services.AddScoped<ICorporateReportService, CorporateReportService>();
 
 builder.Services.AddSingleton<AppConfigService>();
 builder.Services.AddScoped<EmailParsingService>();

@@ -20,6 +20,8 @@ namespace QuoteTrack.Application.Interfaces
         DbSet<CommandCenterRadarItem> CommandCenterRadarItems { get; }
         DbSet<QuoteListItem> QuoteListItems { get; }
         DbSet<ReadModelState> ReadModelStates { get; }
+        DbSet<KpiReport> KpiReports { get; }
+        DbSet<KpiReportLine> KpiReportLines { get; }
 
         // NEW
         DbSet<MergeRequest> MergeRequests { get; }

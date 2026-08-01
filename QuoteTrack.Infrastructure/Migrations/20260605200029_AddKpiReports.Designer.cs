@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using QuoteTrack.Infrastructure.Data;
@@ -11,9 +12,11 @@ using QuoteTrack.Infrastructure.Data;
 namespace QuoteTrack.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260605200029_AddKpiReports")]
+    partial class AddKpiReports
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -708,10 +711,6 @@ namespace QuoteTrack.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("TemplateCode")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -720,9 +719,9 @@ namespace QuoteTrack.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TemplateCode", "ReportType", "PeriodStart");
+                    b.HasIndex("ReportType", "PeriodStart");
 
-                    b.HasIndex("EmployeeId", "TemplateCode", "ReportType", "PeriodStart")
+                    b.HasIndex("EmployeeId", "ReportType", "PeriodStart")
                         .IsUnique();
 
                     b.ToTable("KpiReports");

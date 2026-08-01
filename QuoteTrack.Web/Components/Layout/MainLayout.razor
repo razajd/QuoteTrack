@@ -324,6 +324,10 @@
                         <li><div class="nexcel-dropdown-divider"></div></li>
 
                         <li><a class="nexcel-dropdown-item fw-bold text-primary" href="/admin/management"><i class="bi bi-speedometer2 me-2"></i>Overview Dashboard</a></li>
+                        <AuthorizeView Roles="Admin" Context="kpiContext">
+                            <li><a class="nexcel-dropdown-item fw-bold text-success" href="/admin/kpis"><i class="bi bi-clipboard2-data me-2"></i>KPI Reports</a></li>
+                            <li><a class="nexcel-dropdown-item fw-bold text-primary" href="/admin/reports"><i class="bi bi-bar-chart-line me-2"></i>Corporate Reports</a></li>
+                        </AuthorizeView>
                         <li><div class="nexcel-dropdown-divider"></div></li>
                         <li><a class="nexcel-dropdown-item" href="/admin/management/velocity"><i class="bi bi-funnel text-secondary me-2"></i>Pipeline Velocity</a></li>
                         <li><a class="nexcel-dropdown-item" href="/admin/management/forecasting"><i class="bi bi-graph-up text-success me-2"></i>Revenue Forecasting</a></li>

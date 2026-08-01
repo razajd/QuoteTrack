@@ -1,0 +1,366 @@
+@page "/admin/reports"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using QuoteTrack.Application.DTOs
+@using QuoteTrack.Application.Interfaces
+@using QuoteTrack.Domain.Entities
+@inject ICorporateReportService CorporateReportService
+@inject UserManager<ApplicationUser> UserManager
+@inject IJSRuntime JS
+
+<PageTitle>Corporate Reports</PageTitle>
+
+<style>
+    .reports-shell {
+        max-width: 1500px;
+        margin: 0 auto;
+    }
+
+    .reports-toolbar {
+        display: grid;
+        grid-template-columns: minmax(220px, 1.3fr) minmax(200px, 1fr) 170px 150px 150px 140px auto;
+        gap: 10px;
+        align-items: end;
+    }
+
+    .report-card {
+        border: 1px solid var(--theme-border);
+        border-radius: 6px;
+        background: var(--theme-surface);
+        padding: 15px;
+        min-height: 92px;
+    }
+
+    .report-card-label {
+        color: var(--theme-muted);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+
+    .report-card-value {
+        font-size: 24px;
+        font-weight: 900;
+        margin-top: 7px;
+    }
+
+    .report-table th {
+        white-space: nowrap;
+        background: #eef2f5;
+        color: #263746;
+        font-size: 12px;
+        text-transform: uppercase;
+    }
+
+    .report-table td {
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    @@media (max-width: 1150px) {
+        .reports-toolbar {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+
+    @@media print {
+        .no-print, .nexcel-header, .nexcel-navbar, footer {
+            display: none !important;
+        }
+
+        .main-content {
+            padding: 0 !important;
+        }
+    }
+</style>
+
+<div class="reports-shell">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h2 class="mb-1"><i class="bi bi-bar-chart-line text-primary me-2"></i>Corporate & ELV Reports</h2>
+            <div class="text-muted">Operational, sales, SLA, user activity, and CRM governance reporting.</div>
+        </div>
+
+        <button class="btn btn-outline-secondary no-print" @onclick="PrintReport" disabled="@(report == null)">
+            <i class="bi bi-printer me-1"></i> Print
+        </button>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4 no-print">
+        <div class="card-body">
+            <div class="reports-toolbar">
+                <div>
+                    <label class="form-label fw-bold">Report</label>
+                    <select class="form-select" @bind="reportCode">
+                        <option value="UserActivity">User Activity Log</option>
+                        <option value="FollowUps">Follow-up Performance</option>
+                        <option value="Pipeline">Pipeline Outcomes</option>
+                        <option value="Sla">Lead & Proposal SLA</option>
+                        <option value="DataQuality">CRM Data Quality</option>
+                        <option value="ElvOperations">ELV Operational Controls</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="form-label fw-bold">User</label>
+                    <select class="form-select" @bind="selectedUserId">
+                        <option value="">All users</option>
+                        @foreach (var user in users)
+                        {
+                            <option value="@user.Id">@DisplayName(user)</option>
+                        }
+                    </select>
+                </div>
+
+                <div>
+                    <label class="form-label fw-bold">Date Preset</label>
+                    <select class="form-select" @bind="datePreset" @bind:after="ApplyDatePreset">
+                        <option value="ThisWeek">This week</option>
+                        <option value="LastWeek">Last week</option>
+                        <option value="ThisMonth">This month</option>
+                        <option value="LastMonth">Last month</option>
+                        <option value="Last30">Last 30 days</option>
+                        <option value="QuarterToDate">Quarter to date</option>
+                        <option value="YearToDate">Year to date</option>
+                        <option value="Custom">Custom dates</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="form-label fw-bold">From</label>
+                    <InputDate class="form-control" @bind-Value="dateFrom" />
+                </div>
+
+                <div>
+                    <label class="form-label fw-bold">To</label>
+                    <InputDate class="form-control" @bind-Value="dateTo" />
+                </div>
+
+                <div>
+                    <label class="form-label fw-bold">Trend Grouping</label>
+                    <select class="form-select" @bind="grouping">
+                        <option value="Weekly">Weekly</option>
+                        <option value="Monthly">Monthly</option>
+                    </select>
+                </div>
+
+                <button class="btn btn-primary fw-bold" @onclick="GenerateReportAsync" disabled="@isLoading">
+                    <i class="bi bi-play-fill me-1"></i> Generate
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    else if (report != null)
+    {
+        <div class="mb-3">
+            <h3 class="mb-1">@report.Title</h3>
+            <div class="text-muted">@report.Description</div>
+            <div class="small fw-bold text-primary mt-1">@report.PeriodLabel</div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            @foreach (var card in report.Cards)
+            {
+                <div class="col-6 col-lg-3">
+                    <div class="report-card border-start border-4 border-@card.Tone">
+                        <div class="report-card-label">@card.Label</div>
+                        <div class="report-card-value text-@card.Tone">@card.Value</div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-header bg-white fw-bold py-3">User / Owner Summary</div>
+            <div class="table-responsive">
+                <table class="table table-hover table-striped report-table mb-0">
+                    <thead>
+                        <tr>
+                            @foreach (var column in report.Columns)
+                            {
+                                <th>@column</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in report.Rows)
+                        {
+                            <tr>
+                                @foreach (var column in report.Columns)
+                                {
+                                    <td>@Value(row, column)</td>
+                                }
+                            </tr>
+                        }
+                        @if (report.Rows.Count == 0)
+                        {
+                            <tr><td colspan="@Math.Max(1, report.Columns.Count)" class="text-center text-muted py-4">No data found for this selection.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        @if (report.TrendColumns.Count > 0)
+        {
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white fw-bold py-3">@grouping Trend</div>
+                <div class="table-responsive">
+                    <table class="table table-hover report-table mb-0">
+                        <thead>
+                            <tr>
+                                @foreach (var column in report.TrendColumns)
+                                {
+                                    <th>@column</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in report.TrendRows)
+                            {
+                                <tr>
+                                    @foreach (var column in report.TrendColumns)
+                                    {
+                                        <td>@Value(row, column)</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @if (report.Notes.Count > 0)
+        {
+            <div class="alert alert-secondary">
+                @foreach (var note in report.Notes)
+                {
+                    <div><i class="bi bi-info-circle me-1"></i>@note</div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<ApplicationUser> users = new();
+    private CorporateReportDto? report;
+    private string reportCode = "UserActivity";
+    private string selectedUserId = "";
+    private string datePreset = "ThisMonth";
+    private string grouping = "Weekly";
+    private DateTime dateFrom;
+    private DateTime dateTo;
+    private bool isLoading = true;
+    private string errorMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        users = await UserManager.Users
+            .Where(u => u.IsActive)
+            .OrderBy(u => u.FullName)
+            .ThenBy(u => u.Email)
+            .ToListAsync();
+
+        ApplyDatePreset();
+        await GenerateReportAsync();
+    }
+
+    private void ApplyDatePreset()
+    {
+        var today = DateTime.Today;
+        var mondayOffset = ((int)today.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        var thisMonday = today.AddDays(-mondayOffset);
+
+        switch (datePreset)
+        {
+            case "ThisWeek":
+                dateFrom = thisMonday;
+                dateTo = today;
+                grouping = "Weekly";
+                break;
+            case "LastWeek":
+                dateFrom = thisMonday.AddDays(-7);
+                dateTo = thisMonday.AddDays(-1);
+                grouping = "Weekly";
+                break;
+            case "LastMonth":
+                var currentMonth = new DateTime(today.Year, today.Month, 1);
+                dateFrom = currentMonth.AddMonths(-1);
+                dateTo = currentMonth.AddDays(-1);
+                grouping = "Monthly";
+                break;
+            case "Last30":
+                dateFrom = today.AddDays(-29);
+                dateTo = today;
+                grouping = "Weekly";
+                break;
+            case "QuarterToDate":
+                var quarterMonth = ((today.Month - 1) / 3) * 3 + 1;
+                dateFrom = new DateTime(today.Year, quarterMonth, 1);
+                dateTo = today;
+                grouping = "Monthly";
+                break;
+            case "YearToDate":
+                dateFrom = new DateTime(today.Year, 1, 1);
+                dateTo = today;
+                grouping = "Monthly";
+                break;
+            case "Custom":
+                break;
+            default:
+                dateFrom = new DateTime(today.Year, today.Month, 1);
+                dateTo = today;
+                grouping = "Weekly";
+                break;
+        }
+    }
+
+    private async Task GenerateReportAsync()
+    {
+        isLoading = true;
+        errorMessage = "";
+
+        try
+        {
+            report = await CorporateReportService.GenerateAsync(
+                reportCode,
+                string.IsNullOrWhiteSpace(selectedUserId) ? null : selectedUserId,
+                dateFrom,
+                dateTo,
+                grouping);
+        }
+        catch (Exception ex)
+        {
+            report = null;
+            errorMessage = "Report generation failed: " + ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task PrintReport()
+    {
+        await JS.InvokeVoidAsync("print");
+    }
+
+    private static string DisplayName(ApplicationUser user) =>
+        string.IsNullOrWhiteSpace(user.FullName) ? user.Email ?? user.UserName ?? "Unknown User" : user.FullName;
+
+    private static string Value(CorporateReportRowDto row, string column) =>
+        row.Values.TryGetValue(column, out var value) ? value : "";
+}

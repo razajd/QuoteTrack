@@ -29,6 +29,8 @@ namespace QuoteTrack.Infrastructure.Data
         public DbSet<CommandCenterRadarItem> CommandCenterRadarItems { get; set; }
         public DbSet<QuoteListItem> QuoteListItems { get; set; }
         public DbSet<ReadModelState> ReadModelStates { get; set; }
+        public DbSet<KpiReport> KpiReports { get; set; }
+        public DbSet<KpiReportLine> KpiReportLines { get; set; }
         public DbSet<MergeRequest> MergeRequests { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -293,6 +295,22 @@ namespace QuoteTrack.Infrastructure.Data
 
             builder.Entity<ReadModelState>()
                 .HasIndex(s => s.IsStale);
+
+            builder.Entity<KpiReport>()
+                .HasMany(r => r.Lines)
+                .WithOne(l => l.KpiReport)
+                .HasForeignKey(l => l.KpiReportId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<KpiReport>()
+                .HasIndex(r => new { r.EmployeeId, r.TemplateCode, r.ReportType, r.PeriodStart })
+                .IsUnique();
+
+            builder.Entity<KpiReport>()
+                .HasIndex(r => new { r.TemplateCode, r.ReportType, r.PeriodStart });
+
+            builder.Entity<KpiReportLine>()
+                .HasIndex(l => new { l.KpiReportId, l.SortOrder });
 
             // Client lookups / linking
             builder.Entity<Client>()
